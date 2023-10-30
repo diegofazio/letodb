@@ -1,4 +1,4 @@
-#  $Id: makefile.bc,v 1.15 2010/06/10 05:12:11 alkresin Exp $
+#  $Id$
 # makefile for Borland C/C++ 32 bits
 # Building of Leto binaries
 
@@ -7,7 +7,11 @@
 # uncomment this line if you want to build letodb with xharbour
 # XHARBOUR = yes
 
-SRV_MODE = __WIN_DAEMON__
+# uncomment this line if you want to build letodb with BMDBF* support
+# __BM = yes
+
+SRV_MODE = __WIN_SERVICE__
+# SRV_MODE = __WIN_DAEMON__
 # SRV_MODE = __CONSOLE__
 
 !if !$d(ECHO)
@@ -28,10 +32,9 @@ HB_GT_LIB = gtgui.lib
 !if $d(XHARBOUR)
 HARBOUR_LIBS = debug.lib vm.lib rtl.lib $(HB_GT_LIB) lang.lib rdd.lib macro.lib pp.lib dbfntx.lib dbfcdx.lib dbffpt.lib hbsix.lib common.lib codepage.lib pcrepos.lib
 !else
-HARBOUR_LIBS = hbdebug.lib hbvm.lib hbrtl.lib $(HB_GT_LIB) hblang.lib hbrdd.lib hbmacro.lib hbpp.lib rddntx.lib rddcdx.lib rddfpt.lib hbsix.lib hbcommon.lib hbcpage.lib hbpcre.lib
-# HARBOUR_LIBS = debug.lib vm.lib rtl.lib $(HB_GT_LIB) lang.lib rdd.lib macro.lib pp.lib dbfntx.lib dbfcdx.lib dbffpt.lib hbsix.lib common.lib codepage.lib
+HARBOUR_LIBS = hbdebug.lib hbvmmt.lib hbrtl.lib $(HB_GT_LIB) hblang.lib hbrdd.lib hbmacro.lib hbpp.lib rddntx.lib rddcdx.lib rddfpt.lib hbsix.lib hbcommon.lib hbcpage.lib hbpcre.lib
 !endif
-WINDOWS_LIBS = cw32mt.lib import32.lib
+WINDOWS_LIBS = cw32mt.lib import32.lib ws2_32.lib iphlpapi.lib
 
 CC = bcc32
 LINKER = TLIB
@@ -69,6 +72,11 @@ CLIBFLAGSDEBUG       = -v $(CLIBFLAGS)
 HARBOURFLAGS         = -i$(INCLUDE_DIR) -n -q0 -w -es2 -gc0 -d$(SRV_MODE) $(PRG_USR) $(HARBOURFLAGS)
 LDFLAGS              = $(LDFLAGS)
 
+!if $d(__BM)
+CLIBFLAGS = $(CLIBFLAGS) -D__BM
+HARBOURFLAGS = $(HARBOURFLAGS) -D__BM
+!endif
+
 CC_CMD = $(CC) $(CLIBFLAGS) -o$@ $**
 HB_CMD = $(HARBOUR_EXE) $(HARBOURFLAGS) $** -o$@
 
@@ -97,6 +105,17 @@ CLIENT_RDD_LIB_OBJS = \
    $(OBJ_DIR)\blowfish.obj \
    $(OBJ_DIR)\rddsys.obj
 
+!if $d(XHARBOUR)
+CLIENT_RDD_LIB_OBJS = $(CLIENT_RDD_LIB_OBJS) \
+   $(OBJ_DIR)\itemseri.obj
+!endif
+
+!if $d(__BM)
+CLIENT_RDD_LIB_OBJS = $(CLIENT_RDD_LIB_OBJS) \
+   $(OBJ_DIR)\letoserv.obj \
+   $(OBJ_DIR)\letobmcl.obj
+!endif
+
 #
 # LETO.LIB rules
 #
@@ -105,7 +124,12 @@ CLIENT_LIB_OBJS = \
    $(OBJ_DIR)\letocl.obj \
    $(OBJ_DIR)\hbip.obj \
    $(OBJ_DIR)\common_c.obj \
-   $(OBJ_DIR)\blowfish.obj \
+   $(OBJ_DIR)\blowfish.obj
+
+!if $d(XHARBOUR)
+CLIENT_RDD_LIB_OBJS = $(CLIENT_RDD_LIB_OBJS) \
+   $(OBJ_DIR)\itemseri.obj
+!endif
 
 #
 # LETO.EXE rules
@@ -118,7 +142,8 @@ SERVER_EXE_OBJS = \
    $(OBJ_DIR)\common_c.obj \
    $(OBJ_DIR)\blowfish.obj \
    $(OBJ_DIR)\letofunc.obj \
-   $(OBJ_DIR)\letocore.obj \
+   $(OBJ_DIR)\letolist.obj \
+   $(OBJ_DIR)\leto_2.obj \
    $(OBJ_DIR)\letoacc.obj \
    $(OBJ_DIR)\letovars.obj \
    $(OBJ_DIR)\leto_win.obj \
@@ -129,10 +154,16 @@ SERVER_EXE_OBJS = \
 # Our default target
 #
 
+!if $d(XHARBOUR)
+PROJECT = \
+   $(CLIENT_RDD_LIB) \
+   $(CLIENT_LIB)
+!else
 PROJECT = \
    $(CLIENT_RDD_LIB) \
    $(CLIENT_LIB) \
    $(SERVER_EXE)
+!endif
 
 ALL: $(PROJECT)
 
@@ -167,9 +198,10 @@ $(HARBOUR_LIBS)
 $(WINDOWS_LIBS)
 !
 
-#
-# CLIENT_RDD.LIB Dependencies
-#
+# ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+# ³ CLIENT_RDD.LIB Dependencies³Û
+# ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙÛ
+#  ßßßßßßßßßßßßßßßßßßßßßßßßßß
 
 {$(CLIENT_DIR)}.prg{$(OBJ_DIR)}.c:
     $(HB_CMD)
@@ -184,9 +216,10 @@ $(WINDOWS_LIBS)
     $(CC_CMD)
 
 
-#
-# CLIENT.LIB Dependencies
-#
+# ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+# ³ CLIENT.LIB Dependencies³Û
+# ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙÛ
+#  ßßßßßßßßßßßßßßßßßßßßßßßßßß
 
 .c.obj:
     $(CC_CMD)

@@ -13,7 +13,7 @@
  <?php
   $testAddress = $_POST['addr'];
   if( empty( $testAddress ) ) {
-    echo "<hr><center><form action=\"testleto2.php\" method=\"post\">";
+    echo "<hr><center><form action=\"testleto1.php\" method=\"post\">";
     echo "Server ip address: <input type=\"text\" name=\"addr\" value=\"127.0.0.1\" size=\"18\">";
     echo " port: <input type=\"text\" name=\"port\" value=\"2812\" size=\"5\">";
     echo "<br><input type=\"submit\" value=\"  Ok  \"></form></center><hr>";

@@ -1,4 +1,4 @@
-/*  $Id: rddleto.h,v 1.40.2.23 2013/12/27 08:47:34 alkresin Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -88,10 +88,6 @@ typedef struct _LETOAREA_
 
    LETOTABLE * pTable;
    LPDBRELINFO lpdbPendingRel;   /* Pointer to parent rel struct */
-
-   char *   szDataFileName;      /* Name of data file */
-
-   LETOTAGINFO * pTagCurrent;    /* current order */
 
 } LETOAREA;
 

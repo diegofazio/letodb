@@ -1,0 +1,8 @@
+Error BASE/1004  No exported method: HANDLE
+Called from ->HANDLE(0)
+Called from source\winapi\hwindow.prg->HMAINWINDOW:INITTRAY(412)
+Called from letotray.prg->MAIN(78)
+
+HWGUI 2.22 Build 4
+Date:11/28/19
+Time:15:23:42

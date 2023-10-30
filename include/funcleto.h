@@ -1,4 +1,4 @@
-/*  $Id: funcleto.h,v 1.28.2.24 2014/01/01 15:24:47 ptsarenko Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -78,7 +78,7 @@
    #define HB_SOCKET_T int
 #endif
 
-#define HB_LETO_VERSION_STRING   "2.12"
+#define HB_LETO_VERSION_STRING   "2.17b3"
 
 #define LETO_MAX_USERNAME      16
 #define LETO_PASSWORD "hE8Q,jy5+R"
@@ -182,6 +182,10 @@
    #define HB_ISPOINTER( n )     ISPOINTER( n )
    #define HB_ISHASH( n )        ISHASH( n )
    #define HB_ISSYMBOL( n )      ISSYMBOL( n )
+#endif
+
+#if defined (__XHARBOUR__) || ( (__HARBOUR__ - 0) < 0x030100 )
+   #define PHB_MACRO             HB_MACRO_PTR
 #endif
 
 #if defined (__XHARBOUR__) || !defined(__HARBOUR__) || ( (__HARBOUR__ - 0) < 0x020000 )

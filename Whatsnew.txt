@@ -1,4 +1,4 @@
-$Id: Whatsnew.txt,v 1.5 2009/06/01 11:33:16 alkresin Exp $
+$Id$
 
                                Leto DB Server
                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

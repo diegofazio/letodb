@@ -1,4 +1,4 @@
-/*  $Id: common.prg,v 1.1.1.1 2008/01/31 07:48:20 alkresin Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:

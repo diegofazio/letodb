@@ -1,4 +1,4 @@
-# $Id: makefile.vc,v 1.5 2010/06/10 05:12:11 alkresin Exp $
+# $Id$
 # makefile for Visual C++ 32 bits
 # Building of Leto binaries
 
@@ -24,16 +24,21 @@ CFLAGS = -Ot2b1 -EHs-c- -FD -Gs -W3 -nologo -D__WINDOWS__ -DWIN32 -D__WIN32__ -D
 !if $d(XHARBOUR)
 HARBOUR_LIBS = debug.lib vm.lib rtl.lib gtgui.lib lang.lib rdd.lib macro.lib pp.lib dbfntx.lib dbfcdx.lib dbffpt.lib hbsix.lib common.lib codepage.lib pcrepos.lib
 !else
-HARBOUR_LIBS = hbdebug.lib hbvm.lib hbrtl.lib gtgui.lib hblang.lib hbrdd.lib hbmacro.lib hbpp.lib rddntx.lib rddcdx.lib rddfpt.lib hbsix.lib hbcommon.lib hbcpage.lib hbpcre.lib
-# HARBOUR_LIBS = debug.lib vm.lib rtl.lib $(HB_GT_LIB) lang.lib rdd.lib macro.lib pp.lib dbfntx.lib dbfcdx.lib dbffpt.lib hbsix.lib common.lib codepage.lib
+HARBOUR_LIBS = hbdebug.lib hbvmmt.lib hbrtl.lib gtgui.lib hblang.lib hbrdd.lib hbmacro.lib hbpp.lib rddntx.lib rddcdx.lib rddfpt.lib hbsix.lib hbcommon.lib hbcpage.lib hbpcre.lib
 !endif
 
 WINDOWS_LIBS = user32.lib winspool.lib WSock32.Lib
 
+!if $d(XHARBOUR)
+all: \
+   $(LIB_DIR)\rddleto.lib \
+   $(LIB_DIR)\leto.lib
+!else
 all: \
    $(BIN_DIR)\letodb.exe \
    $(LIB_DIR)\rddleto.lib \
    $(LIB_DIR)\leto.lib
+!endif
 
 $(BIN_DIR)\letodb.exe :  \
    $(OBJ_DIR)\server.obj \
@@ -41,8 +46,9 @@ $(BIN_DIR)\letodb.exe :  \
    $(OBJ_DIR)\hbip.obj \
    $(OBJ_DIR)\common_c.obj \
    $(OBJ_DIR)\blowfish.obj \
-   $(OBJ_DIR)\letocore.obj \
+   $(OBJ_DIR)\leto_2.obj \
    $(OBJ_DIR)\letofunc.obj \
+   $(OBJ_DIR)\letolist.obj \
    $(OBJ_DIR)\letoacc.obj \
    $(OBJ_DIR)\letovars.obj \
    $(OBJ_DIR)\leto_win.obj \
@@ -68,10 +74,13 @@ $(OBJ_DIR)\common_c.obj  : $(COMMON_DIR)\common_c.c
 $(OBJ_DIR)\blowfish.obj  : $(COMMON_DIR)\blowfish.c
   cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**
 
-$(OBJ_DIR)\letocore.obj  : $(SERVER_DIR)\letocore.c
+$(OBJ_DIR)\leto_2.obj  : $(SERVER_DIR)\leto_2.c
   cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**
 
 $(OBJ_DIR)\letofunc.obj  : $(SERVER_DIR)\letofunc.c
+  cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**
+
+$(OBJ_DIR)\letolist.obj  : $(SERVER_DIR)\letolist.c
   cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**
 
 $(OBJ_DIR)\letoacc.obj  : $(SERVER_DIR)\letoacc.c
@@ -94,12 +103,35 @@ $(OBJ_DIR)\errorsys.c   : $(SERVER_DIR)\errorsys.prg
 
 
 $(LIB_DIR)\rddleto.lib : \
+   $(OBJ_DIR)\letocl.obj \
    $(OBJ_DIR)\leto1.obj \
    $(OBJ_DIR)\letomgmn.obj \
    $(OBJ_DIR)\hbip.obj \
    $(OBJ_DIR)\common_c.obj \
    $(OBJ_DIR)\blowfish.obj
   lib /out:$@ $**
+
+
+{$(SERVER_DIR)}.prg{$(OBJ_DIR)}.c:
+  $(HRB_DIR)\bin\harbour.exe $** -n -w -i$(HRB_DIR)\include -i$(INC_DIR) -d__WIN_DAEMON__ -o$@
+
+{$(COMMON_DIR)}.prg{$(OBJ_DIR)}.c:
+  $(HRB_DIR)\bin\harbour.exe $** -n -w -i$(HRB_DIR)\include -i$(INC_DIR) -d__WIN_DAEMON__ -o$@
+
+{$(SERVER_DIR)}.c{$(OBJ_DIR)}.obj:
+  cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**
+
+{$(COMMON_DIR)}.c{$(OBJ_DIR)}.obj:
+  cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**
+
+{$(CLIENT_DIR)}.c{$(OBJ_DIR)}.obj:
+  cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**
+
+{$(OBJ_DIR)}.c{$(OBJ_DIR)}.obj:
+  cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**
+
+.c.obj:
+  cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**
 
 $(LIB_DIR)\leto.lib : \
    $(OBJ_DIR)\letocl.obj \
@@ -108,11 +140,7 @@ $(LIB_DIR)\leto.lib : \
    $(OBJ_DIR)\blowfish.obj
   lib /out:$@ $**
 
-{$(SERVER_DIR)}.prg{$(OBJ_DIR)}.c:
-  $(HRB_DIR)\bin\harbour.exe $** -n -w -i$(HRB_DIR)\include -i$(INC_DIR) -d__WIN_DAEMON__ -o$@
 
-{$(COMMON_DIR)}.prg{$(OBJ_DIR)}.c:
-  $(HRB_DIR)\bin\harbour.exe $** -n -w -i$(HRB_DIR)\include -i$(INC_DIR) -d__WIN_DAEMON__ -o$@
 
 {$(SERVER_DIR)}.c{$(OBJ_DIR)}.obj:
   cl $(CFLAGS) /c /I$(INC_DIR) /I$(HRB_DIR)\include /Fo$@ $**

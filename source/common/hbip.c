@@ -1,4 +1,4 @@
-/*  $Id: hbip.c,v 1.23 2010/06/24 17:23:57 ptsarenko Exp $  */
+/*  $Id$  */
 /*
  * xHarbour Project source code:
  *    The internet protocol / TCP support
@@ -61,6 +61,10 @@
 
 #include "hbdefs.h"
 
+#if defined( __XHARBOUR__ ) || (defined( __HARBOUR__ ) && __HARBOUR__ - 0 < 0x000100)
+   #define HB_SIZE ULONG
+#endif
+
 /* Compile in Unix mode under Cygwin */
 #ifdef OS_UNIX_COMPATIBLE
   #undef HB_OS_WIN_32
@@ -72,6 +76,22 @@
 
 #ifndef HB_ERR_FUNCNAME
    #define HB_ERR_FUNCNAME &hb_errFuncName
+#endif
+
+#if !defined( HB_ISNIL )
+   #define HB_ISNIL( n )         ISNIL( n )
+   #define HB_ISCHAR( n )        ISCHAR( n )
+   #define HB_ISNUM( n )         ISNUM( n )
+   #define HB_ISLOG( n )         ISLOG( n )
+   #define HB_ISDATE( n )        ISDATE( n )
+   #define HB_ISMEMO( n )        ISMEMO( n )
+   #define HB_ISBYREF( n )       ISBYREF( n )
+   #define HB_ISARRAY( n )       ISARRAY( n )
+   #define HB_ISOBJECT( n )      ISOBJECT( n )
+   #define HB_ISBLOCK( n )       ISBLOCK( n )
+   #define HB_ISPOINTER( n )     ISPOINTER( n )
+   #define HB_ISHASH( n )        ISHASH( n )
+   #define HB_ISSYMBOL( n )      ISSYMBOL( n )
 #endif
 
 #if defined( HB_OS_WIN_32 ) || defined( HB_OS_WIN ) 
@@ -94,6 +114,7 @@
    #include <sys/socket.h>
    #include <netdb.h>
    #include <netinet/in.h>
+   #include <netinet/tcp.h>
    #include <arpa/inet.h>
 
    #if defined(__WATCOMC__)
@@ -200,10 +221,10 @@ void hb_ipCleanup( void )
    }
 }
 
-void hb_ipSetBufSize( HB_SOCKET_T hSocket, int iBufSend, int iBufRecv )
+void hb_ipSetBufSize( HB_SOCKET_T hSocket, long iBufSend, long iBufRecv )
 {
-   int value;
-   int len = sizeof(value);
+   long value;
+   int len = 4;//sizeof(value);
 
    if( iBufSend && !getsockopt( (unsigned) hSocket, (int) SOL_SOCKET, (int) SO_SNDBUF, (char*) (SOCKOPT4) &value, (socklen_t*) &len ) )
    {
@@ -383,9 +404,7 @@ static int hb_socketConnect( HB_SOCKET_T hSocket, struct sockaddr_in *remote, in
       int iErrval;
       socklen_t iErrvalLen;
    #endif
-   int iOpt = 1;
-
-   setsockopt( hSocket, SOL_SOCKET, SO_KEEPALIVE, (const char *) &iOpt , sizeof( iOpt ));
+   int iOpt;
 
    /* we'll be using a nonblocking function */
    hb_socketSetNonBlocking( hSocket );
@@ -440,6 +459,11 @@ static int hb_socketConnect( HB_SOCKET_T hSocket, struct sockaddr_in *remote, in
          }
       }
    }
+
+   iOpt = 1;
+   setsockopt( hSocket, SOL_SOCKET, SO_KEEPALIVE, (const char *) &iOpt , sizeof( iOpt ) );
+   iOpt = 1;
+   setsockopt( hSocket, IPPROTO_TCP, TCP_NODELAY, (const char *) &iOpt, sizeof( iOpt ) );
 
    hb_socketSetBlocking( hSocket );
 
@@ -539,14 +563,14 @@ HB_SOCKET_T hb_ipConnect( const char * szHost, int iPort, int timeout )
       else
       {
          remote.sin_family = AF_INET;
-         remote.sin_port= iPort;
+         remote.sin_port= htons( iPort );
          remote.sin_addr.s_addr = ulAddr;
 
 
          /* Set internal socket send buffer to 64k,
          * this should fix the speed problems some users have reported
          */
-         hb_ipSetBufSize( hSocket, 16384, 16384 );
+         hb_ipSetBufSize( hSocket, 0xFFFFFF, 0xFFFFFF );
 
          hb_socketConnect( hSocket, &remote, timeout );       
       }
@@ -557,7 +581,7 @@ HB_SOCKET_T hb_ipConnect( const char * szHost, int iPort, int timeout )
 HB_SOCKET_T hb_ipServer( int iPort, const char * szAddress, int iListen )
 {
    HB_SOCKET_T hSocket;
-   int iOpt = 1;
+   int iOpt;
    struct sockaddr_in remote;
 
    HB_SOCKET_ZERO_ERROR();
@@ -575,6 +599,7 @@ HB_SOCKET_T hb_ipServer( int iPort, const char * szAddress, int iListen )
    }
 
    /* Reusable socket; under unix, do not wait it is unused */
+   iOpt = 1;
    setsockopt( hSocket, SOL_SOCKET, SO_REUSEADDR, (const char *) &iOpt, sizeof( iOpt ));
 
    remote.sin_family = AF_INET;
@@ -666,7 +691,7 @@ HB_SOCKET_T hb_ipAccept( HB_SOCKET_T hSocket, int timeout, char * szAddr, long i
    {
       // char * ptr = inet_ntoa( si_remote.sin_addr );
       ULONG u = ntohl( si_remote.sin_addr.s_addr );
-      int iOpt = 1;
+      int iOpt;
 
       // memcpy( szAddr, ptr, strlen(ptr) );
       // szAddr[strlen(ptr)] = '\0';
@@ -674,12 +699,13 @@ HB_SOCKET_T hb_ipAccept( HB_SOCKET_T hSocket, int timeout, char * szAddr, long i
             HB_HIBYTE( u ), HB_LOBYTE( u ) );
 
       *lPort = ntohs( si_remote.sin_port );
+      iOpt = 1;
       setsockopt( incoming, SOL_SOCKET, SO_KEEPALIVE, (const char *) &iOpt , sizeof( iOpt ));
 
       /* Set internal socket send buffer to 64k,
       * this should fix the speed problems some users have reported
       */
-      hb_ipSetBufSize( incoming, 16384, 16384 );
+      hb_ipSetBufSize( incoming, 0xFFFFFF, 0xFFFFFF );
       return incoming;
    }
 }
@@ -704,21 +730,6 @@ int hb_ipclose( HB_SOCKET_T hSocket )
    return iRet;
 }
 
-#if defined( __XHARBOUR__ ) || __HARBOUR__ + 0 < 0x020000
-static BOOL hb_itemGetWriteCL( PHB_ITEM pBufItm, char ** pBuffer, ULONG * pulLen )
-{
-   if( HB_IS_STRING( pBufItm ) )
-   {
-      pBufItm = hb_itemUnShare( pBufItm );
-      *pBuffer = ( char * ) hb_itemGetCPtr( pBufItm );
-      *pulLen = hb_itemGetCLen( pBufItm );
-      return TRUE;
-   }
-   else
-      return FALSE;
-}
-#endif
-
 void hb_getLocalIP( HB_SOCKET_T hSocket, char * szIP )
 {
    struct sockaddr_in localAddr;
@@ -732,6 +743,7 @@ void hb_getLocalIP( HB_SOCKET_T hSocket, char * szIP )
    else
       strcpy( szIP, inet_ntoa(localAddr.sin_addr) );
 }
+
 
 BOOL hb_ip_rfd_isset( HB_SOCKET_T hSocket )
 {
@@ -774,3 +786,4 @@ int hb_ip_rfd_select( int iTimeOut )
 
    return iTimeOut;
 }
+

@@ -1,4 +1,4 @@
-/*  $Id: manage.prg,v 1.24 2010/06/30 16:48:17 ptsarenko Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -61,16 +61,17 @@ REQUEST HB_GT_GUI_DEFAULT
 Static CRLF
 Static aOpers[6], aSent[6], aRead[6]
 
+Memvar oApp, oSayServer, cRes
+
 Function Main( cAddress )
 Local cIp := "", nPort := 2812, nRefr := 2, arr
-Public oApp
+Public oApp, oSayServer, cRes
 
    CRLF := Chr(13)+Chr(10)
    Afill( aOpers,0 )
    Afill( aSent,0 )
    Afill( aRead,0 )
    oApp := HApp():New()
-   //hb_IPInit()
 
    oApp:nItemCurr := 0
    IF cAddress != Nil
@@ -86,13 +87,12 @@ Public oApp
 
    @ 0,0 PANEL oApp:oTool OF oApp:oMainWnd SIZE 0,56
 
-   @ 10,2 COMBOBOX oApp:oCombo ITEMS oApp:aServers SIZE 140, 22 EDIT DISPLAYCOUNT 4;
-      OF oApp:oTool ON CHANGE {||onComboChg()} STYLE CBS_DROPDOWN + CBS_AUTOHSCROLL ;
+   @ 10,2 COMBOBOX oApp:oCombo ITEMS oApp:aServers SIZE 140, 22 EDIT OF oApp:oTool ;
+      ON CHANGE {||onComboChg()} STYLE CBS_DROPDOWN + CBS_AUTOHSCROLL ;
       TOOLTIP "Server ip address or name"
-
-   @ 150,2 GET oApp:oGetPort VAR nPort SIZE 50,24 OF oApp:oTool PICTURE "9999"
+   @ 150,2 GET oApp:oGetPort VAR nPort SIZE 50,24 OF oApp:oTool PICTURE "99999" TOOLTIP "Port"
    @ 200,2 BUTTON oApp:oBtnGo CAPTION "Go" SIZE 40, 24 OF oApp:oTool ON CLICK {||GoConnect()}
-   @ 250,10 GET UPDOWN oApp:oGetRefr VAR nRefr RANGE 1,60 OF oApp:oTool SIZE 50,32
+   @ 250,10 GET UPDOWN oApp:oGetRefr VAR nRefr RANGE 1,60 OF oApp:oTool SIZE 50,32 TOOLTIP "Refresh time in seconds"
 
    @ 310,10 SAY oSayServer CAPTION "" SIZE 200,24 OF oApp:oTool FONT oApp:oMainWnd:oFont
 
@@ -100,7 +100,10 @@ Public oApp
    @ 90,30 BUTTON "Users" SIZE 70, 24 OF oApp:oTool ON CLICK {||UsersInfo()}
    @ 170,30 BUTTON "Tables" SIZE 70, 24 OF oApp:oTool ON CLICK {||TablesInfo()}
 
-   @ 520,12 BUTTON oApp:oBtnKill CAPTION "Kill" SIZE 50, 32 OF oApp:oTool ON CLICK {||KillUser()}
+   @ 520,12 BUTTON oApp:oBtnLock CAPTION "Lock" SIZE 55, 32 OF oApp:oTool ON CLICK {||LockConn()} ;
+     TOOLTIP "Lock/Unlock new connections"
+   @ 520,12 BUTTON oApp:oBtnKill CAPTION "Kill" SIZE 50, 32 OF oApp:oTool ON CLICK {||KillUser()} ;
+     TOOLTIP "Disconnect current user"
 
    @ 0,56 BROWSE oApp:oBrw1 ARRAY SIZE 600,250 STYLE WS_BORDER + WS_VSCROLL ;
         ON SIZE {|o,x,y|o:Move(,,x)}
@@ -242,6 +245,7 @@ Local nSec1
 Static lReady := .F., nCurIndex := 1, nCurSec := 0, nLastOpers := 0, nLastSent := 0, nLastRead := 0
 
    oApp:oBtnKill:Hide()
+   oApp:oBtnLock:Show()
    IF oApp:lSend
       oApp:nRequest = 1
       Return .T.
@@ -356,6 +360,7 @@ Local aInfo, i, nUsers
    ENDIF
    oApp:lSend := .F.
 
+   oApp:oBtnLock:Hide()
    oApp:oBtnKill:Show()
    nUsers := Len( aInfo )
    oApp:oBrw1:aArray := Array( nUsers, 5 )
@@ -389,6 +394,7 @@ Return .T.
 Static Function TablesInfo()
 Local aInfo, i, nTables
 
+   oApp:oBtnLock:Hide()
    oApp:oBtnKill:Hide()
    IF oApp:lSend
       oApp:nRequest = 3
@@ -493,6 +499,15 @@ Local aInfo, i, nTables
 
 Return Nil
 
+Static Function LockConn()
+   IF oApp:nInfoType == 1 .AND. hwg_MsgYesNo( IIF(oApp:lLocked, "Unlock server ?", "Lock server ?"))
+      IF leto_LockConn( !oApp:lLocked )
+         oApp:lLocked := !oApp:lLocked
+         oApp:oBtnLock:SetText( IIF( oApp:lLocked, "Unlock", "Lock" ) )
+      ENDIF
+   ENDIF
+Return Nil
+
 Static Function KillUser()
 
    IF oApp:nInfoType == 2 .AND. hwg_MsgYesNo( "Really kill " + oApp:oBrw1:aArray[oApp:oBrw1:nCurrent,1] + " ?" )
@@ -552,7 +567,7 @@ Static Function ReadOptions( oApp )
 Local oOptions := HXMLDoc():Read( "manage.xml" )
 Local oNode, i1, cIp, cPort, cUser, cPass
 
-   IF !Empty( oOptions:aItems ) .AND. oOptions:aItems[1]:title == "init"
+   IF !Empty( oOptions ) .AND. !Empty( oOptions:aItems ) .AND. oOptions:aItems[1]:title == "init"
       FOR i1 := 1 TO Len( oOptions:aItems[1]:aItems )
          oNode := oOptions:aItems[1]:aItems[i1]
          IF oNode:title == "server"
@@ -597,6 +612,7 @@ CLASS HApp
    DATA oSayServer
    DATA oBtnGo
    DATA oBtnKill
+   DATA oBtnLock
    DATA oBrw1
    DATA oBrw2
    DATA oSplit
@@ -611,6 +627,8 @@ CLASS HApp
 
    DATA nInfoType  INIT 0
    DATA nRequest   INIT 0
+
+   DATA lLocked    INIT .F.
 
    METHOD New
 ENDCLASS
@@ -648,10 +666,12 @@ Return .T.
 
 EXIT PROCEDURE EXIPROC
 
+   IF oApp:lLocked
+      leto_LockConn( .F. )
+   ENDIF
    leto_DisConnect()
    IF oApp:oTimer != Nil
       oApp:oTimer:End()
    ENDIF
    SaveOptions()
-   //hb_IPCleanup()
 RETURN

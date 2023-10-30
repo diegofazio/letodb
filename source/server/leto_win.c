@@ -1,4 +1,4 @@
-/*  $Id: leto_win.c,v 1.11 2009/07/02 10:40:58 alkresin Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -48,10 +48,265 @@
  *
  */
 
+
+#ifdef __WIN_SERVICE__
+
 #include "hbapi.h"
 #include "hbapiitm.h"
+#include "hbvm.h"
+//#include "hbxvm.h"
+//#include "hbset.h"
+//#include "hbthread.h"
 #include "srvleto.h"
 
+#define _SERVICE_NAME            "LetoDB_Service"
+#define _SERVICE_DISPLAY_NAME    "LetoDB Service"
+
+
+static SERVICE_STATUS_HANDLE     hServiceHandle = 0;
+static char                      ServiceEntryFunc[ HB_SYMBOL_NAME_LEN + 1 ];
+static TCHAR                     ServiceName[] = _SERVICE_NAME;
+static TCHAR                     ServiceDisplayName[] = _SERVICE_DISPLAY_NAME;
+
+extern int leto_GlobalExit;
+
+static ULONG ulSvcError = 0;
+
+
+void leto_SetServiceStatus( DWORD State )
+{
+   SERVICE_STATUS SrvStatus;
+
+   SrvStatus.dwServiceType             = SERVICE_WIN32_OWN_PROCESS;
+   SrvStatus.dwCurrentState            = State;
+   SrvStatus.dwControlsAccepted        = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+   SrvStatus.dwWin32ExitCode           = 0;
+   SrvStatus.dwServiceSpecificExitCode = 0;
+   SrvStatus.dwCheckPoint              = 0;
+   SrvStatus.dwWaitHint                = 0;
+
+   if( hServiceHandle )
+      SetServiceStatus( hServiceHandle, &SrvStatus );
+}
+
+void WINAPI leto_ServiceControlHandler( DWORD dwCtrlCode )
+{
+   DWORD State = SERVICE_RUNNING;
+
+   switch( dwCtrlCode )
+   {
+      case SERVICE_CONTROL_STOP:
+         State = SERVICE_STOPPED;
+         leto_GlobalExit = 1;
+         return;
+
+      case SERVICE_CONTROL_SHUTDOWN:
+         State = SERVICE_STOPPED;
+         leto_GlobalExit = 1;
+         return;
+   }
+
+   leto_SetServiceStatus( State );
+}
+
+void WINAPI leto_ServiceMainFunction( DWORD dwArgc, LPTSTR * lpszArgv )
+{
+   HB_SYMBOL_UNUSED( dwArgc );
+   HB_SYMBOL_UNUSED( lpszArgv );
+
+   hServiceHandle = RegisterServiceCtrlHandler( ServiceName, ( LPHANDLER_FUNCTION ) leto_ServiceControlHandler );
+
+   if( hServiceHandle != (SERVICE_STATUS_HANDLE) 0 )
+   {
+      PHB_DYNS pDynSym;
+
+      leto_SetServiceStatus( SERVICE_RUNNING );
+
+      hb_vmThreadInit( NULL );
+
+      pDynSym = hb_dynsymFindName( ServiceEntryFunc );
+
+      if( pDynSym )
+      {
+          if( hb_vmRequestReenter() )
+         {
+            hb_vmPushSymbol( hb_dynsymSymbol( pDynSym ) );
+            hb_vmPushNil();
+            hb_vmProc( 0 );
+
+            hb_vmRequestRestore();
+         }
+      }
+
+      leto_SetServiceStatus( SERVICE_STOPPED );
+
+      hb_vmThreadQuit();
+   }
+}
+
+HB_FUNC( LETO_SERVICESTART )
+{
+   HB_BOOL bRetVal = HB_FALSE;
+   SERVICE_TABLE_ENTRY lpServiceTable[ 2 ] = { { ServiceName, ( LPSERVICE_MAIN_FUNCTION ) leto_ServiceMainFunction },
+                                               { NULL, NULL } };
+
+   hb_strncpy( ServiceEntryFunc, hb_parcx( 1 ), HB_SIZEOFARRAY( ServiceEntryFunc ) - 1 );
+
+   if( StartServiceCtrlDispatcher( lpServiceTable ) )
+      bRetVal = HB_TRUE;
+   else
+      ulSvcError = ( ULONG ) GetLastError();
+
+   hb_retl( bRetVal );
+}
+
+HB_FUNC( LETO_SERVICEINSTALL )
+{
+   HB_BOOL bRetVal = HB_FALSE;
+   TCHAR szPath[ MAX_PATH ];
+   SC_HANDLE schSrv;
+
+   if( GetModuleFileName( NULL, szPath, MAX_PATH ) )
+   {
+      SC_HANDLE schSCM = OpenSCManager( NULL, NULL, SC_MANAGER_ALL_ACCESS );
+
+      if( schSCM )
+      {
+         schSrv = CreateService( schSCM,
+                                 ServiceName,
+                                 ServiceDisplayName,
+                                 SERVICE_ALL_ACCESS,
+                                 SERVICE_WIN32_OWN_PROCESS,
+                                 SERVICE_AUTO_START,        //SERVICE_DEMAND_START,
+                                 SERVICE_ERROR_NORMAL,
+                                 szPath,
+                                 NULL, NULL, NULL, NULL, NULL );
+
+         if( schSrv )
+         {
+            CloseServiceHandle( schSrv );
+            bRetVal = HB_TRUE;
+         }
+         else
+         {
+            ulSvcError = ( ULONG ) GetLastError();
+         }
+
+         CloseServiceHandle( schSCM );
+      }
+      else
+         ulSvcError = ( ULONG ) GetLastError();
+   }
+
+   hb_retl( bRetVal );
+}
+
+HB_FUNC( LETO_SERVICEDELETE )
+{
+   HB_BOOL bRetVal = HB_FALSE;
+
+   SC_HANDLE schSCM = OpenSCManager( NULL, NULL, SC_MANAGER_ALL_ACCESS );
+
+   if( schSCM )
+   {
+      SC_HANDLE schService;
+      SERVICE_STATUS_PROCESS ssp;
+      DWORD dwStartTime, dwTimeout, dwWaitTime;
+      DWORD dwBytesNeeded;
+
+      // check and stop
+      schService = OpenService( schSCM, ServiceName, SERVICE_STOP | SERVICE_QUERY_STATUS );
+      if( schService )
+      {
+         dwStartTime = GetTickCount();
+         // Make sure the service is not already stopped.
+         if( QueryServiceStatusEx( schService, SC_STATUS_PROCESS_INFO, (LPBYTE) &ssp,
+                                       sizeof(SERVICE_STATUS_PROCESS), &dwBytesNeeded ) )
+         {
+            // If a stop is pending, wait for it.
+            dwTimeout = 30000; // 30-second time-out
+            while( ssp.dwCurrentState == SERVICE_STOP_PENDING )
+            {
+               dwWaitTime = ssp.dwWaitHint / 10;
+               if( dwWaitTime < 1000 )
+                  dwWaitTime = 1000;
+               else if( dwWaitTime > 10000 )
+                  dwWaitTime = 10000;
+
+               Sleep( dwWaitTime );
+
+               if( !QueryServiceStatusEx( schService, SC_STATUS_PROCESS_INFO, (LPBYTE) &ssp,
+                                             sizeof(SERVICE_STATUS_PROCESS), &dwBytesNeeded ) )
+               {
+                  break;
+               }
+
+               if( ssp.dwCurrentState == SERVICE_STOPPED )
+                  break;
+
+               if( GetTickCount() - dwStartTime > dwTimeout )
+                  break;
+            }
+         }
+
+         // Send a stop code to the service.
+         if( ControlService( schService, SERVICE_CONTROL_STOP, (LPSERVICE_STATUS) &ssp ) )
+         {
+            // Wait for the service to stop.
+            while( ssp.dwCurrentState != SERVICE_STOPPED )
+            {
+               dwWaitTime = ssp.dwWaitHint / 10;
+               if( dwWaitTime < 1000 )
+                  dwWaitTime = 1000;
+               else if( dwWaitTime > 10000 )
+                  dwWaitTime = 10000;
+
+               Sleep( ssp.dwWaitHint );
+
+               if( !QueryServiceStatusEx( schService, SC_STATUS_PROCESS_INFO, (LPBYTE) &ssp,
+                                          sizeof(SERVICE_STATUS_PROCESS), &dwBytesNeeded ) )
+               {
+                  break;
+               }
+               if( ssp.dwCurrentState == SERVICE_STOPPED )
+                  break;
+
+               if( GetTickCount() - dwStartTime > dwTimeout )
+                  break;
+            }
+         }
+
+         CloseServiceHandle( schService );
+      }
+
+      // delete
+      schService = OpenService( schSCM, ServiceName, DELETE );
+      if( schService )
+      {
+         bRetVal = ( HB_BOOL ) DeleteService( schService );
+         CloseServiceHandle( schService );
+         if( ! bRetVal )
+         {
+            ulSvcError = ( ULONG ) GetLastError();
+         }
+      }
+      else
+         ulSvcError = ( ULONG ) GetLastError();
+
+      CloseServiceHandle( schSCM );
+   }
+
+   hb_retl( bRetVal );
+}
+
+HB_FUNC( LETOWIN_GETLASTERROR )
+{
+   hb_retnl( ulSvcError );
+}
+
+#endif
+
+/*
 extern char carr1[40][40];
 extern USHORT uiarr1len;
 extern char carr2[100][40];
@@ -66,11 +321,12 @@ typedef struct
 
 static MEMAREA s_MemArea = { 0,0,0 };
 
-HB_FUNC( MSGSTOP )
+
+HB_FUNC( LETO_MSG )
 {
    LPTSTR lpMsg = HB_TCHAR_CONVTO( hb_parcx( 1 ) );
 
-   MessageBox( GetActiveWindow(), lpMsg, TEXT( "Leto db server" ), MB_OK | MB_ICONSTOP );
+   MessageBox( GetActiveWindow(), lpMsg, TEXT( "Leto db server" ), MB_OK );
 
    HB_TCHAR_FREE( lpMsg );
 }
@@ -198,7 +454,7 @@ BOOL leto_ThreadCondUnlock( LETO_COND * pCond )
    BOOL bRes;
 
    if( pCond->ulLocked )
-   {    
+   {
       bRes = SetEvent( pCond->hEvent );
       if (!bRes)
          InterlockedExchange( &(pCond->ulLocked), 0 );
@@ -206,3 +462,4 @@ BOOL leto_ThreadCondUnlock( LETO_COND * pCond )
    }
    return FALSE;
 }
+*/

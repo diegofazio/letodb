@@ -1,4 +1,4 @@
-/* $Id: test_var.prg,v 1.2.2.1 2013/12/19 10:56:09 alkresin Exp $ */
+/* $Id$ */
 /*
  * This sample demonstrates how to use set/get variables functions with Leto db server
  */

@@ -1,4 +1,4 @@
-/*  $Id: letotray.prg,v 1.1 2010/06/14 17:16:17 ptsarenko Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -59,10 +59,10 @@ Static nPort := 2812
 Function Main
 Local oMainWindow, oTrayMenu, oIcon := HIcon():AddResource("ICON_1")
 
-   cPath := DiskName() + ":\" + CurDir() + "\"
+   cPath := "c:\letodb\"
 
    IF ! File( cPath + "letodb.exe" )
-      MsgInfo("letodb.exe not found")
+      hwg_MsgInfo( "letodb.exe not found")
       Return nil
    ENDIF
 
@@ -72,7 +72,7 @@ Local oMainWindow, oTrayMenu, oIcon := HIcon():AddResource("ICON_1")
       MENUITEM "Start letodb" ACTION StartServer()
       MENUITEM "Stop letodb" ACTION StopServer()
       SEPARATOR
-      MENUITEM "Exit"  ACTION EndWindow()
+      MENUITEM "Exit"  ACTION hwg_EndWindow()
    ENDMENU
 
    oMainWindow:InitTray( oIcon,, oTrayMenu, "LetoDB server" )
@@ -87,7 +87,7 @@ Function StartServer
 //  Leto_Disconnect()  
 //  MsgInfo("LetoDB server alreary running")
 //else
-  ShellExecute( cPath + "letodb.exe",,, cPath )
+  wapi_ShellExecute( cPath + "letodb.exe",,, cPath )
 //endif
 
 Return nil
@@ -96,7 +96,7 @@ Return nil
 Function StopServer
 //if Connect()
 //  Leto_Disconnect()  
-  ShellExecute( cPath + "letodb.exe",, "stop", cPath )
+  wapi_ShellExecute( cPath + "letodb.exe",, "stop", cPath )
 //else
 //  MsgInfo("LetoDB server is not running")
 //endif

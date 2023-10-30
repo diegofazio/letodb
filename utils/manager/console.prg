@@ -1,4 +1,4 @@
-/*  $Id: console.prg,v 1.13 2010/01/21 10:18:26 alkresin Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -62,7 +62,6 @@ Local arr, nKey := 49, nRes
    ENDIF
 
    CRLF := Chr(13)+Chr(10)
-   //hb_IPInit()
 
    cAddress := "//" + cAddress + "/"
    ? "Connecting to " + cAddress
@@ -91,11 +90,16 @@ Local arr, nKey := 49, nRes
          UsersInfo()
       ELSEIF nKey == 51
          TablesInfo()
+      ELSEIF nKey == 52
+         LocksInfo()
+      ELSEIF nKey == 56
+         Vars()
       ELSEIF nKey == 57
          Admin()
       ENDIF
       ?
-      ? "Press ESC to quit, 1 - connection info, 2 - users list, 3 - tables, 9 - administration"
+      ? "Press ESC to quit, 1 - connection info, 2 - users list, 3 - tables, 4 - locks,"
+      ? "                   8 - vars,            9 - administration"
       nKey := Inkey(0)
    ENDDO
 
@@ -173,6 +177,155 @@ Local aInfo, cData, nPos := 1, i, cItem, nTables, oldc
 
    SETCOLOR( oldc )
 Return .T.
+
+Static Function LocksInfo()
+Local aInfo, cData, nPos := 1, i, cItem, nCount, oldc
+
+   IF ( aInfo := leto_MgGetLocks() ) == Nil
+      Return .F.
+   ENDIF
+
+   oldc := SETCOLOR( "RB+/N" )
+   nCount := Len( aInfo )
+   FOR i := 1 TO nCount
+      ? Padr( aInfo[i,1],35 )
+      ?? aInfo[i,2]
+   NEXT
+
+   SETCOLOR( oldc )
+Return .T.
+
+Static Function Vars()
+Local nKey := 0, arr, xRes, i, j, arr1
+
+   DO WHILE nKey != 48
+      ? "1 Get variable"
+      ? "2 Set string variable"
+      ? "3 Set integer variable"
+      ? "4 Set logical variable"
+      ? "5 Delete variable"
+      ? "6 List"
+      ? "0 Exit"
+      ?
+      nKey := Inkey(0)
+      IF nKey == 49  //Get variable
+         IF( arr := GetVar() ) != Nil
+            xRes := leto_varGet( arr[1], arr[2] )
+            IF Valtype( xRes ) == "L"
+               xRes := Iif( xRes, ".T.", ".F." )
+            ELSEIF Valtype( xRes ) == "N"
+               xRes := Ltrim( Str( xRes ) )
+            ENDIF
+            EchoColor( "Group: ", "GR+" )
+            EchoColor( arr[1], "BG+/N", .T. )
+            EchoColor( " Var: ", "GR+", .T. )
+            EchoColor( arr[2], "BG+/N", .T. )
+            EchoColor( " value: ", "GR+", .T. )
+            EchoColor( xRes, "BG+/N", .T. )
+         ELSE
+            EchoColor( "Operation canceled", "R+/N" )
+         ENDIF
+      ELSEIF nKey == 50  //Set string variable
+         IF( arr := GetVar( .T. ) ) != Nil
+            EchoColor( "Group: ", "GR+" )
+            EchoColor( arr[1], "BG+/N", .T. )
+            EchoColor( " Var: ", "GR+", .T. )
+            EchoColor( arr[2], "BG+/N", .T. )
+            EchoColor( " value: ", "GR+", .T. )
+            EchoColor( arr[3], "BG+/N", .T. )
+
+            xRes := leto_varSet( arr[1], arr[2], arr[3], 1 )
+            EchoColor( Iif( xRes, "Done","Error" ), "R+/N" )
+         ELSE
+            EchoColor( "Operation canceled", "R+/N" )
+         ENDIF
+      ELSEIF nKey == 51  //Set int variable
+         IF( arr := GetVar( .T. ) ) != Nil
+            EchoColor( "Group: ", "GR+" )
+            EchoColor( arr[1], "BG+/N", .T. )
+            EchoColor( " Var: ", "GR+", .T. )
+            EchoColor( arr[2], "BG+/N", .T. )
+            EchoColor( " value: ", "GR+", .T. )
+            EchoColor( arr[3], "BG+/N", .T. )
+
+            xRes := Val( xRes )
+            xRes := leto_varSet( arr[1], arr[2], arr[3], 1 )
+            EchoColor( Iif( xRes, "Done","Error" ), "R+/N" )
+         ELSE
+            EchoColor( "Operation canceled", "R+/N" )
+         ENDIF
+      ELSEIF nKey == 52  //Set logical variable
+         IF( arr := GetVar( .T. ) ) != Nil
+            EchoColor( "Group: ", "GR+" )
+            EchoColor( arr[1], "BG+/N", .T. )
+            EchoColor( " Var: ", "GR+", .T. )
+            EchoColor( arr[2], "BG+/N", .T. )
+            EchoColor( " value: ", "GR+", .T. )
+            EchoColor( arr[3], "BG+/N", .T. )
+
+            xRes := Iif( lower(xRes)==".t.", .T., .F. )
+            xRes := leto_varSet( arr[1], arr[2], arr[3], 1 )
+            EchoColor( Iif( xRes, "Done","Error" ), "R+/N" )
+         ELSE
+            EchoColor( "Operation canceled", "R+/N" )
+         ENDIF
+
+      ELSEIF nKey == 53  //Delete variable
+         IF( arr := GetVar() ) != Nil
+            leto_varDel( arr[1], arr[2] )
+         ELSE
+            EchoColor( "Operation canceled", "R+/N" )
+         ENDIF
+      ELSEIF nKey == 54 //Get the list of variables
+         IF ( arr := leto_varGetlist() ) != Nil
+            FOR i := 1 TO Len( arr )
+               EchoColor( arr[i] + " (", "BG+/N" )
+               arr1 := leto_varGetlist( arr[i] )
+               FOR j := 1 TO Len( arr1 )
+                  EchoColor( arr1[j] + Iif( j == Len( arr1 ), ")-->", "," ), "BG+/N", .T. )
+               NEXT
+               arr1 := leto_varGetlist( arr[i],8 )
+               FOR j := 1 TO Len( arr1 )
+                  ? "   " + arr1[j,1] + ":",arr1[j,2]
+               NEXT
+            NEXT
+         ELSE
+            ? "Error reading list:",leto_ferror()
+         ENDIF
+      ENDIF
+      ?
+   ENDDO
+
+Return .T.
+
+Static Function GetVar( lValue, lGroupOnly )
+Local cGroup, cVar, cValue
+
+   ACCEPT "Group :" TO cGroup
+   IF Empty(cGroup)
+      Return Nil
+   ENDIF
+
+   IF !Empty( lGroupOnly )
+      Return { cGroup }
+   ELSE
+      ACCEPT "Var :" TO cVar
+      IF Empty(cVar)
+         Return Nil
+      ENDIF
+   ENDIF
+
+   IF Empty( lValue )
+      Return { cGroup, cVar }
+   ELSE
+      ACCEPT "Value :" TO cValue
+      IF Lastkey() == 27
+         Return Nil
+      ENDIF
+   ENDIF
+
+Return { cGroup, cVar, cValue }
+
 
 Static Function Admin()
 Local nKey := 0, arr
@@ -262,10 +415,14 @@ Local cUser, cPass, cRights, i
 
 Return { cUser, cPass, cRights }
 
-Function EchoColor( cText, cColor )
+Function EchoColor( cText, cColor, lnoCR )
 Local oldc := SetColor( cColor )
 
-   ? cText
+   IF Empty( lnoCR )
+      ? cText
+   ELSE
+      ?? cText
+   ENDIF
    SetColor( oldc )
 Return Nil
 
@@ -300,5 +457,4 @@ Return .T.
 EXIT PROCEDURE EXIPROC
 
    leto_DisConnect()
-   //hb_IPCleanup()
 RETURN

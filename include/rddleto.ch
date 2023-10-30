@@ -1,4 +1,4 @@
-/*  $Id: rddleto.ch,v 1.5 2010/06/08 08:34:34 alkresin Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -63,6 +63,11 @@
 #define LETO_VPREVIOUS        1
 
 #define RDDI_REFRESHCOUNT     101
+#define RDDI_BUFKEYNO         102
+#define RDDI_BUFKEYCOUNT      103
+#define RDDI_VERSION          104
+#define RDDI_CLIENTID         105
+
 #define DBI_BUFREFRESHTIME    1001
 #define DBI_CLEARBUFFER       1002
 

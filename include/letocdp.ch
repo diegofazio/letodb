@@ -1,4 +1,4 @@
-/*  $Id: letocdp.ch,v 1.2 2010/08/19 15:43:07 ptsarenko Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:

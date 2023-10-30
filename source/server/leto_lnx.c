@@ -1,4 +1,4 @@
-/*  $Id: leto_lnx.c,v 1.9 2009/07/02 10:40:58 alkresin Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -51,7 +51,7 @@
 #include "hbapi.h"
 #include "hbapiitm.h"
 #include "hbvm.h"
-#include "sys/shm.h"
+//#include "sys/shm.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -64,6 +64,7 @@
 #include <sys/stat.h>
 #include "srvleto.h"
 
+/*
 typedef struct
 {
    int hMem;
@@ -143,6 +144,7 @@ BOOL leto_WriteMemArea( const char * szBuffer, int iAddr, int iLength )
    memcpy( ((char*)s_MemArea.lpView)+iAddr, szBuffer, iLength );
    return TRUE;
 }
+*/
 
 HB_FUNC( LETO_DAEMON )
 {
@@ -190,6 +192,7 @@ HB_FUNC( LETO_DAEMON )
 
 }
 
+/*
 BOOL leto_ThreadCreate( void* (*ThreadFunc)(void*) )
 {
    pthread_t threadID;
@@ -276,3 +279,4 @@ BOOL leto_ThreadCondUnlock( LETO_COND * pCond )
    pthread_mutex_unlock( &(pCond->mutex) );
    return bRes;
 }
+*/

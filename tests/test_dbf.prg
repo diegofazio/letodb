@@ -1,4 +1,4 @@
-/* $Id: test_dbf.prg,v 1.1.2.1 2013/12/23 07:45:30 alkresin Exp $ */
+/* $Id$ */
 /*
  * This sample tests working with dbf files
  * Just change the cPath value to that one you need.
@@ -38,7 +38,6 @@ Field NAME, NUM, INFO, DINFO
          DINFO WITH Date()+i-1
    NEXT
    ? "Records has been added"
-
    INDEX ON NAME TAG NAME
    INDEX ON Str(NUM,4) TAG NUM
    ? "File has been indexed"
@@ -121,8 +120,7 @@ Field NAME, NUM, INFO, DINFO
    SKIP
    ? "skip", NUM, NAME, DINFO, Iif( Eof(), "- Ok","- Failure" )
 
-   //dbCloseAll()
-   USE
+   dbCloseAll()
    ?
    ? "Press any key to continue..."
    Inkey(0)
@@ -134,7 +132,6 @@ Field NAME, NUM, INFO, DINFO
       ? i, ordKey(i)
    ENDDO
 
-   dbCloseAll()
    ?
    ? "Press any key to finish..."
    Inkey(0)

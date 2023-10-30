@@ -1,4 +1,4 @@
-/* $Id: test_ta.prg,v 1.2 2009/06/05 13:57:22 alkresin Exp $ */
+/* $Id$ */
 /*
  * This sample demonstrates how to use transactions with Leto db server
  * Just change the cPath value to that one you need.

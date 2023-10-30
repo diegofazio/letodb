@@ -1,5 +1,5 @@
 /*
- * $Id: errint.c,v 1.6 2010/06/02 07:08:44 aokhotnikov Exp $
+ * $Id$
  */
 
 /*
@@ -58,14 +58,15 @@
 #include "hbapilng.h"
 #include "hbdate.h"
 #include "hbset.h"
-#if defined (__XHARBOUR__) || !defined(__HARBOUR__) || ( (__HARBOUR__ - 0) < 0x020000 )
-#define LETO_ERRCODE ULONG
-#else
+#include "funcleto.h"
+
 #define LETO_ERRCODE HB_ERRCODE
-#endif
 
 static HB_BOOL   bErrHandlerRun = 0;
 extern void leto_errInternal( HB_ULONG ulIntCode, const char * szText, const char * szPar1, const char * szPar2 );
+
+/* NOTE: Use as minimal calls from here, as possible.
+         Don't allocate memory from this function. [vszakats] */
 
 void hb_errInternalRaw( LETO_ERRCODE ulIntCode, const char * szText, const char * szPar1, const char * szPar2 )
 {

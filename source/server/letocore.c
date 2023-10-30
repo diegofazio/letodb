@@ -1,4 +1,4 @@
-/*  $Id: letocore.c,v 1.4 2010/07/09 10:42:27 aokhotnikov Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -52,11 +52,7 @@
 #include "hbapiitm.h"
 #include "hbvm.h"
 #include "hbxvm.h"
-#ifdef __XHARBOUR__
-   #include "hbfast.h"
-#else
-   #include "hbapicls.h"
-#endif
+#include "hbapicls.h"
 #include "hbdate.h"
 #include "srvleto.h"
 #include "hbapierr.h"
@@ -72,10 +68,6 @@
    #define HB_SOCKET_T SOCKET
 #else
    #define HB_SOCKET_T int
-#endif
-
-#if defined (__XHARBOUR__) || !defined(__HARBOUR__) || ( (__HARBOUR__ - 0) < 0x020000 ) 
-   #define HB_MAXINT    HB_LONG
 #endif
 
 #ifndef HB_OS_PATH_DELIM_CHR
@@ -336,7 +328,7 @@ LETO_THREAD_FUNC thread2( void * Cargo )
          // leto_metka( 1, "T2 ", s );
       }
       else
-         leto_writelog( NULL, 0, "thread2-2 %d",iRes );
+         leto_writelog( NULL, 0, "thread2-2 %d\r\n",iRes );
    }
    return 0;
 }
@@ -441,16 +433,6 @@ void leto_ScanUS( void )
          }
       }
    }
-}
-
-HB_FUNC( HB_IPINIT )
-{
-   hb_ipInit();
-}
-
-HB_FUNC( HB_IPCLEANUP )
-{
-   hb_ipCleanup();
 }
 
 HB_FUNC( LETO_SERVER )

@@ -1,4 +1,4 @@
-/*  $Id: server.prg,v 1.123 2010/08/20 09:17:58 alkresin Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -55,6 +55,7 @@
 #include "dbinfo.ch"
 #include "fileio.ch"
 #include "error.ch"
+#include "rddleto.ch"
 
 #ifndef HB_HRB_BIND_DEFAULT
    #define HB_HRB_BIND_DEFAULT 0x0 
@@ -70,27 +71,36 @@
    #define DEF_CH_SEP   '\'
 #else
 #ifndef __CONSOLE__
-#ifndef __XHARBOUR__
    ANNOUNCE HB_GTSYS
    REQUEST HB_GT_GUI_DEFAULT
-#endif
 #endif
    #define DEF_SEP      '\'
    #define DEF_CH_SEP   '/'
 #endif
 
-   REQUEST  ABS, ALLTRIM, AT, CHR, CTOD, DATE, DAY, DELETED, DESCEND, DTOC, DTOS, ;
-      EMPTY, I2BIN, L2BIN, LEFT, LEN, LOWER, LTRIM, MAX, MIN, MONTH, PAD, PADC, ;
+   REQUEST ABS, ALLTRIM, AT, CHR, CTOD, DATE, DAY, DELETED, DESCEND, DTOC, DTOS, ;
+      EMPTY, I2BIN, L2BIN, LEFT, LEN, LOWER, LTRIM, MAX, MIN, MONTH, OS, PAD, PADC, ;
       PADL, PADR, RAT, RECNO, RIGHT, ROUND, RTRIM, SPACE, STOD, STR, STRZERO, ;
-      SUBSTR, TIME, TRANSFORM, TRIM, UPPER, VAL, YEAR
+      SUBSTR, REPLICATE, TIME, TRANSFORM, TRIM, UPPER, VAL, YEAR, ;
+      hb_ATokens, hb_tokenGet, hb_tokenCount, hb_WildMatch, hb_DiskSpace
+   REQUEST TIME, HB_DATETIME, HB_DTOT, HB_TTOD, HB_NTOT, HB_TTON, HB_CTOT, HB_TTOC, ;
+      HB_TTOS, HB_STOT, HB_HOUR, HB_MINUTE, HB_SEC, HB_VALTOEXP
 
-   EXTERNAL LETO_ALIAS
+   REQUEST FieldPos, FieldGet, FieldPut, Deleted, hb_FieldType, hb_FieldLen, hb_FieldDec
+   REQUEST dbGoTop, dbGoBottom, dbSkip, dbGoto, dbSeek, Bof, Eof, dbEval, dbInfo
+   REQUEST dbSetFilter, dbClearFilter
+   REQUEST dbAppend, dbCommit, RLock, FLock, dbUnlock, dbDelete, dbRecall
+   REQUEST ordKeyVal, dbOrderInfo, Alias, Select, dbSelectArea
+   REQUEST hb_Hash, hb_HAutoAdd, hb_HHasKey, hb_HPos, hb_HGet, hb_HSet, hb_HDel, hb_HKeyAt,;
+      hb_HValueAt, hb_HFill, hb_HClone, hb_HCopy, hb_HMerge, hb_HScan
+   REQUEST HB_BITAND, HB_BITOR, HB_BITTEST, HB_BITXOR, HB_BITNOT, HB_BITSET, HB_BITRESET, HB_BITSHIFT
 
-/*
- Ads-specific functions
-Request  CONTAINS, COLLATE, CTOT, CTOTS, LOWERW, NOW, REVERSE, STOTS, ;
-    TODAY, TSTOD, UPPERW
-*/
+   REQUEST LETO_VARSET, LETO_VARGET, LETO_VARINCR, LETO_VARDECR, LETO_VARDEL, LETO_VARGETLIST
+
+   EXTERNAL leto_SelectArea, leto_Alias, leto_AreaID, leto_ClientID
+   EXTERNAL leto_RecLock, leto_RecLockList, leto_RecUnlock
+   EXTERNAL leto_TableLock, Leto_TableUnlock
+   EXTERNAL letoCloseArea, leto_Use, leto_dbEval
 
 #ifdef __HB_EXT_CDP__
    #include "hbextcdp.ch"
@@ -98,131 +108,155 @@ Request  CONTAINS, COLLATE, CTOT, CTOTS, LOWERW, NOW, REVERSE, STOTS, ;
    #include "letocdp.ch"
 #endif
 
+   STATIC cDirBase
+   STATIC pHrb
+
+PROCEDURE Main( cCommand )
+   LOCAL nRes
+
+   cDirBase := hb_dirBase()
+   leto_setDirBase( cDirBase )
+
+   IF cCommand != NIL .AND. Lower( cCommand ) == "stop"
+
+      // connect and send QUIT
+      PUBLIC oApp := HApp():New()
+
+      IF leto_SendMessage( oApp:nPort, "stop", oApp:ip )
+#ifdef __CONSOLE__
+         ? "Send STOP to server..."
+#else
+         WrLog( "Send STOP to server..." )
+#endif
+      ELSE
+#ifdef __CONSOLE__
+         ? "Can't STOP the server (not started?)..."
+#else
+         WrLog( "Can't STOP the server (not started?)..." )
+#endif
+      ENDIF
+      RETURN
+
+   ELSEIF cCommand != NIL .AND. Lower( cCommand ) == "reload"
+
+      // send message to reload letoudf.hrb
+      PUBLIC oApp := HApp():New()
+      IF ! leto_SendMessage( oApp:nPort, "udf_rel", oApp:ip )
+#ifdef __CONSOLE__
+         ? "Can't reload letoudf.hrb"
+#else
+         WrLog( "Can't reload letoudf.hrb" )
+#endif
+      ENDIF
+      RETURN
+
+   ELSE
+
 #ifdef __CONSOLE__
 
-PROCEDURE Main
-   LOCAL nRes
-   PUBLIC oApp := HApp():New()
-
-   CLS
-   IF ( nRes := leto_CreateMemArea( oApp:nPort % 10000 ) ) == - 1
-      ? "Initialization Error ..."
-      RETURN
-   ENDIF
-   @ 1, 5 SAY "Server listening ..."
-   @ 2, 5 SAY "Press [ESC] to terminate the program"
-
-   StartServer()
-
-   RETURN
+      CLS
+      @ 1, 5 SAY "Server listening ..."
+      @ 2, 5 SAY "Press [ESC] to terminate the program"
+      StartServer()
 
 #endif
 
 #ifdef __WIN_DAEMON__
 
-PROCEDURE Main( cCommand )
-   LOCAL nRes
-   PUBLIC oApp := HApp():New()
+      StartServer()
 
-   IF ( nRes := leto_CreateMemArea( oApp:nPort % 10000 ) ) == - 1
-      MsgStop( "Initialization Error ..." )
-      RETURN
-   ENDIF
-   IF cCommand != Nil .AND. Lower( cCommand ) == "stop"
-      IF nRes > 0
-         MsgStop( "Server isn't found..." )
-      ELSE
-         Leto_WriteMemArea( '0', 0, 1 )
-      ENDIF
-      RETURN
-   ELSE
-      IF nRes == 0
-         MsgStop( "Server already running!" )
+#endif
+
+#ifdef __WIN_SERVICE__
+
+      IF cCommand != NIL
+         IF Lower( cCommand ) == "install"
+            IF leto_serviceInstall()
+               WrLog( "LetoDB service has been successfully installed" )
+            ELSE
+               WrLog( "Error installing LetoDB service: " + Str( letowin_GetLastError() ) )
+            ENDIF
+            RETURN
+         ELSEIF Lower( cCommand ) == "uninstall"
+            IF leto_serviceDelete()
+              WrLog( "LetoDB service has been deleted" )
+            ELSE
+              WrLog( "Error deleting LetoDB service: " + Str( letowin_GetLastError() )  )
+            ENDIF
+            RETURN
+         ELSEIF Lower( cCommand ) == "test"
+            StartServer()
+            RETURN
+         ELSE
+            ? "LetoDB_mt { install | uninstall }"
+         ENDIF
          RETURN
       ENDIF
-   ENDIF
 
-   StartServer()
+      IF ! leto_serviceStart( "StartServer" )
+         WrLog( "LetoDB service has had some problems: " + Str( letowin_GetLastError() ) )
+      ENDIF
 
-   RETURN
+//!!!!!!!!!!!!!!!   DO WHILE win_serviceGetStatus() == WIN_SERVICE_RUNNING
 
 #endif
 
 #ifdef __LINUX_DAEMON__
 
-PROCEDURE Main( cCommand )
-   LOCAL nRes
-   PUBLIC oApp := HApp():New()
-
-   IF cCommand != Nil .AND. Lower( cCommand ) == "stop"
-
-      IF ( nRes := leto_CreateMemArea( oApp:nPort % 10000 ) ) == - 1
-         WrLog( "Initialization Error" )
-         RETURN
-      ENDIF
-      IF nRes > 0
-         WrLog( "Server isn't found" )
-      ELSE
-         Leto_WriteMemArea( '0', 0, 1 )
-      ENDIF
-      RETURN
-
-   ELSE
       IF !leto_Daemon()
          WrLog( "Can't become a daemon" )
          RETURN
       ENDIF
-      IF ( nRes := leto_CreateMemArea( oApp:nPort % 10000 ) ) == - 1
-         WrLog( "Initialization Error" )
-         RETURN
-      ENDIF
-      IF nRes == 0
-         IF cCommand != Nil .AND. Lower( cCommand ) == "force"
-            leto_SetAreaNew()
-         ELSE
-            WrLog( "Server already running!" )
-            RETURN
-         ENDIF
-      ENDIF
-   ENDIF
 
-   StartServer()
+      StartServer()
+
+#endif
+
+   ENDIF
 
    RETURN
 
-#endif
-
 PROCEDURE StartServer()
+   PUBLIC oApp := HApp():New()
 
    REQUEST DBFNTX
    REQUEST DBFCDX
+#ifdef __BM
+   REQUEST BMDBFNTX
+   REQUEST BMDBFCDX
+#endif
 
-   hs_InitSet()
+   WrLog( "Leto DB Server has been started." )
+   leto_InitSet()
 
    leto_CreateData()
-   WrLog( "Leto DB Server has been started." )
 
-   IF File( "letoudf.hrb" )
-#ifndef __XHARBOUR__
-     hb_HrbLoad(HB_HRB_BIND_DEFAULT, "letoudf.hrb" )
-#else
-      __hrbLoad( "letoudf.hrb" )
-#endif
-      WrLog( "letoudf.hrb has been loaded." )
+   leto_HrbLoad()
+/*
+   IF ! EMPTY( oApp:cTrigger )
+      HB_RddInfo( RDDI_TRIGGER, oApp:cTrigger, leto_Driver( oApp:nDriver ) )
    ENDIF
-
-   leto_Server( oApp:nPort )
+   IF ! EMPTY( oApp:cPendingTrigger )
+      HB_RddInfo( RDDI_PENDINGTRIGGER, oApp:cPendingTrigger, leto_Driver( oApp:nDriver ) )
+   ENDIF
+*/
+   IF ! leto_Server( oApp:nPort, oApp:nTimeOut, oApp:ip )
+#if __HARBOUR__ > 0x020100 
+      WrLog( "Socket error " + hb_socketErrorString() )
+#else
+      WrLog( "Socket error " )
+#endif
+   ENDIF
 
    WrLog( "Server has been closed." )
 
    RETURN
 
-FUNCTION hs_InitSet()
+#if __HARBOUR__ < 0x030000
 
-   rddSetDefault( "DBFCDX" )
-   SET AUTOPEN ON
-
-   RETURN Nil
+#xtranslate hb_FNameExt([<n,...>])          => GetExten(<n>)
+#xtranslate hb_FNameDir([<n,...>])          => FilePath(<n>)
+#xtranslate hb_FNameName([<n,...>])         => CutPath(CutExten(<n>))
 
 STATIC FUNCTION FilePath( fname )
    LOCAL i
@@ -242,39 +276,140 @@ STATIC FUNCTION GetExten( fname )
 
    RETURN Lower( SubStr( fname, i + 1 ) )
 
-/*
-STATIC FUNCTION IndexInfo( i, cName )
+FUNCTION CutPath( fname )
 
-   RETURN OrdBagName( i ) + ";" + OrdName( i ) + ";" + cName + ";" + ;
-      OrdFor( i ) + ";" + dbOrderInfo( DBOI_KEYTYPE, , i ) + ";" +   ;
-      LTrim( Str( dbOrderInfo(DBOI_KEYSIZE,, i ) ) ) + ";"
-*/
+   LOCAL i
 
-STATIC FUNCTION cValToChar( uValue )
-   LOCAL cType := ValType( uValue )
+   RETURN iif( ( i := RAt( '\', fname ) ) = 0, ;
+      iif( ( i := RAt( '/', fname ) ) = 0, fname, SubStr( fname, i + 1 ) ), ;
+      SubStr( fname, i + 1 ) )
 
-   IF cType == "L"
-      RETURN iif( uValue, "T", "F" )
-   ELSEIF cType == "N"
-      RETURN AllTrim( Str( uValue ) )
-   ELSEIF cType == "D"
-      RETURN Dtoc( uValue )
+FUNCTION CutExten( fname )
+
+   LOCAL i
+
+   RETURN iif( ( i := RAt( '.', fname ) ) = 0, fname, SubStr( fname, 1, i - 1 ) )
+
+#endif
+
+STATIC FUNCTION leto_hrbLoad
+   LOCAL cHrbName := cDirBase + "letoudf.hrb", pInit
+   IF File( cHrbName )
+      pHrb := hb_HrbLoad(HB_HRB_BIND_DEFAULT, cHrbName )
+      IF ! Empty(pHrb)
+         WrLog( cHrbName + " has been loaded." )
+
+         IF ! Empty( pInit := hb_hrbGetFunSym(pHrb, 'UDF_Init') )
+            hb_ExecFromArray( pInit )
+         ENDIF
+      ENDIF
+   ENDIF
+   RETURN Nil
+
+FUNCTION hs_UdfReload()
+   IF ! Empty( pHrb )
+      hb_hrbUnload( pHrb )
+      pHrb := nil
+      WrLog( "letoudf.hrb has been unloaded." )
+   ENDIF
+   leto_hrbLoad()
+   RETURN Nil
+
+FUNCTION letoUseArea( nUserStru, cFileName, cAlias, lShared, lReadOnly, cdp )
+   LOCAL nAreaID := 0, nLen
+   LOCAL cReply
+
+   IF ! Empty( cFileName )
+
+      cReply := leto_Use( nUserStru, cFileName, cAlias, lShared, lReadOnly, cdp )
+
+      nLen := Asc( Left( cReply, 1 ) )
+      IF Substr( cReply, nLen + 2, 1) == "+"
+         nAreaID := Val( Substr( cReply, nLen + 3 ) )
+      ENDIF
    ENDIF
 
-   RETURN uValue
+   RETURN nAreaId
 
-FUNCTION hs_opentable( nUserStru, cCommand )
+FUNCTION leto_Use( nUserStru, cFileName, cAlias, lShared, lReadOnly, cdp )
+
+   IF Left( cFileName, 1 ) != "\" .and. Left( cFileName, 1 ) != "/"
+      cFileName := "/" + cFileName
+   ENDIF
+   IF Empty( cAlias )
+      cAlias := cFileName
+   ENDIF
+   IF lShared == Nil
+      lShared := .T.
+   ENDIF
+   IF lReadOnly == Nil
+      lReadOnly := .F.
+   ENDIF
+   IF cdp == Nil
+      cdp := ""
+   ENDIF
+
+   RETURN hs_opentable( nUserStru, cFileName + ";" + cAlias + ";" + ;
+                        IIF(lShared, "T", "F") + ;
+                        IIF(lReadOnly, "T", "F") + ";" + ;
+                        cdp + ";" + Chr(13) + Chr(10) )
+
+FUNCTION letoOrdCreate( nUserStru, cBagName, cKey, cTagName, lUnique, cFor,;
+   cWhile, lAll, nRecNo, nNext, lRest, lDesc, lCustom, lAdditive )
+
+   IF ! Empty( cKey ) .and. ( ! Empty( cBagName ) .or. ! Empty( cTagName ) )
+
+      IF lUnique == Nil
+         lUnique := .F.
+      ENDIF
+      IF cFor == Nil
+         cFor := ""
+      ENDIF
+      IF cWhile == Nil
+         cWhile := ""
+      ENDIF
+      IF lAll == Nil
+         lAll := .F.
+      ENDIF
+      IF lRest == Nil
+         lRest := .F.
+      ENDIF
+      IF lDesc == Nil
+         lDesc := .F.
+      ENDIF
+      IF lCustom == Nil
+         lCustom := .F.
+      ENDIF
+      IF lAdditive == Nil
+         lAdditive := .F.
+      ENDIF
+
+      hs_createindex( nUserStru, cBagName + ";" + cTagName + ";" + cKey + ";" + ;
+ IIF( lUnique, "T", "F") + ";" + cFor + ";" +  cWhile + ";" + ;
+ IIF( lAll, "T", "F" ) + ";" + IIF( Empty( nRecNo ), "", LTrim( Str( nRecNo ) )) + ";" +;
+ IIF( Empty( nNext ) , "", LTrim( Str( nNext ) ) ) + ";;" + ;
+ IIF( lRest, "T", "F" ) + ";" + IIF( lDesc, "T", "F" ) + ";" + ;
+ IIF( lCustom, "T", "F" ) + ";" + IIF( lAdditive, "T", "F" ) + ";" )
+
+   ENDIF
+
+   RETURN Nil
+
+FUNCTION letoOrdListAdd( nUserStru, cBagName )
+   IF ! Empty( cBagName )
+      hs_openindex( nUserStru, cBagName + ";" )
+   ENDIF
+   RETURN Nil
+
+FUNCTION hs_opentable( nUserStru, cCommand )                                  // lNoSaveWA!!!
    LOCAL nPos, cReply, cLen, cName, cFileName, cAlias, cRealAlias, cFlags
-   LOCAL aStru, i, cIndex := ""
-   LOCAL nTableStru, nIndexStru, nId, lShared, lReadonly, cdp, nArea
-   LOCAL bOldError, lres := .T. , oError, nDriver, lNoSaveWA := leto_GetAppOptions( 11 )
+   LOCAL aStru, i
+   LOCAL nTableStru, lShared, lReadonly, cdp
+   LOCAL lres := .T. , oError, nDriver, lNoSaveWA := leto_GetAppOptions( 11 )
    LOCAL cDataPath, lShareTables
+   LOCAL nAreaID, cRecData
 
    IF Empty( cName := GetCmdItem( cCommand,1,@nPos ) ) .OR. nPos == 0
-      RETURN "-002"
-   ENDIF
-   nArea := Val( cName )
-   IF Empty( cName := GetCmdItem( cCommand,nPos + 1,@nPos ) ) .OR. nPos == 0
       RETURN "-002"
    ENDIF
    cAlias := GetCmdItem( cCommand, nPos + 1, @nPos )
@@ -287,25 +422,30 @@ FUNCTION hs_opentable( nUserStru, cCommand )
 
    cdp := GetCmdItem( cCommand, nPos + 1, @nPos )
 
-   IF ( nDriver := leto_getDriver( Lower(cName ) ) ) == Nil
-      nDriver := leto_GetAppOptions( 2 )
-   ENDIF
-
    cName := StrTran( cName, DEF_CH_SEP, DEF_SEP )
-   IF Empty( getExten( cName ) )
+   IF Empty( hb_FNameExt( cName ) )
       cName += ".dbf"
    ENDIF
 
-   IF ( nTableStru := leto_FindTable( cName, .T. ) ) == - 1 .OR. lNoSaveWA
-      dbSelectArea()
-      cRealAlias := "A" + PadL( Select(), 6, '0' )
+   IF ( nDriver := leto_getDriver( hb_FNameDir(cName) ) ) == Nil
+      nDriver := leto_GetAppOptions( LETO_CDX )
+   ENDIF
+
+   IF lNoSaveWA .OR. ( nTableStru := leto_FindTable( cName, @nAreaID ) ) < 0
+      nAreaID := leto_CreateAreaID()
+      cRealAlias := leto_MakeAlias( nAreaID )
       lShareTables := leto_GetAppOptions( 10 )
-      cDataPath := leto_GetAppOptions( 1 )
+      IF Lower(cName) = "/mem:"
+         cDataPath := ""
+         cName := Substr(cName, 2)
+      ELSE
+         cDataPath := leto_GetAppOptions( 1 )
+      ENDIF
       cFileName := cDataPath + cName
-      bOldError := ErrorBlock( { |e|break( e ) } )
-      BEGIN SEQUENCE
+
+      BEGIN SEQUENCE WITH { |e|break( e ) }
          leto_SetUserEnv( nUserStru )
-         dbUseArea( .F. , iif( nDriver == 1,"DBFNTX",Nil ), ;
+         dbUseArea( .T. , leto_Driver( nDriver ), ;
             cFileName, cRealAlias, ;
             ( lShareTables .AND. lShared ),   ;
             ( lShareTables .AND. lReadOnly ), ;
@@ -316,8 +456,8 @@ FUNCTION hs_opentable( nUserStru, cCommand )
       IF ! lres .AND. ( !lShareTables .AND. lReadonly )
           // file read only
           lres := .T.
-          BEGIN SEQUENCE
-             dbUseArea( .F. , iif( nDriver == 1,"DBFNTX",Nil ), ;
+          BEGIN SEQUENCE WITH { |e|break( e ) }
+             dbUseArea( .T. , leto_Driver( nDriver ), ;
                 cFileName, cRealAlias, ;
                 ( lShared ),   ;
                 ( lReadOnly ), ;
@@ -326,149 +466,126 @@ FUNCTION hs_opentable( nUserStru, cCommand )
              lres := .F.
           END SEQUENCE
       ENDIF
-      ErrorBlock( bOldError )
 
       IF !lres
+         leto_DelAreaID( nAreaID )
          RETURN ErrorStr(Iif( oError:genCode==EG_OPEN .AND. oError:osCode==32, "-004:","-003:" ), oError, cFileName)
       ENDIF
-      IF nTableStru == -1
-         nTableStru := leto_InitTable( Select(), cName, nDriver, lShared )
+      IF ( nTableStru := leto_InitTable( nAreaID, cName, nDriver, lShared ) ) < 0
+         RETURN "-004"
+      ENDIF
+      IF leto_InitArea( nUserStru, nTableStru, nAreaID, cAlias, .F. ) < 0
+         RETURN "-004"
       ENDIF
    ELSE
       IF !leto_SetShared( nTableStru ) .OR. !lShared
+         // The table is already opened exclusively by another user
          RETURN "-004:21-1023-0-0" + Chr(9) + cName
       ENDIF
-      bOldError := ErrorBlock( { |e|break( e ) } )
-      BEGIN SEQUENCE
-        IF OrdCount() > 0
-           OrdSetFocus( 1 )
+      IF leto_InitArea( nUserStru, nTableStru, nAreaID, cAlias, .T. ) < 0
+         RETURN "-004"
+      ENDIF
+      BEGIN SEQUENCE WITH { |e|break( e ) }
+        IF OrdCount() >= SET( _SET_AUTORDER )
+           OrdSetFocus( SET( _SET_AUTORDER ) )
         ENDIF
         dbGoTop()
       RECOVER USING oError
          lres := .F.
       END SEQUENCE
-      ErrorBlock( bOldError )
       IF !lres
          RETURN ErrorStr("-004:", oError, cName)
       ENDIF
    ENDIF
 
-   nId := Select() * 512 + nArea
-   leto_InitArea( nUserStru, nTableStru, nId, cAlias )
-
    aStru := dbStruct()
-   cReply := "+" + LTrim( Str( nId ) ) + ";" + ;
-      iif( nDriver == 1, "1;", "0;" ) + LTrim( Str( Len(aStru ) ) ) + ";"
+   cReply := "+" + LTrim( Str( nAreaID ) ) + ";" + ;
+      iif( nDriver == LETO_NTX, "1;", "0;" ) + ;
+      LetoMemoInfo() + Leto_LastUpdate( nUserStru ) + ;
+      LTrim( Str( Len(aStru ) ) ) + ";"
    FOR i := 1 TO Len( aStru )
       cReply += aStru[i,DBS_NAME] + ";" + aStru[i,DBS_TYPE] + ";" + ;
          LTrim( Str( aStru[i,DBS_LEN] ) ) + ";" + LTrim( Str( aStru[i,DBS_DEC] ) ) + ";"
    NEXT
-   i := 1
-   DO WHILE !Empty( cName := OrdKey( i ) )
-      IF i == 1
-         nIndexStru := leto_InitIndex( nId, nUserStru, OrdBagName( 1 ) )
-      ENDIF
-      cIndex += Leto_IndexInfo( i, cName )
-      leto_addTag( nId, nUserStru, nIndexStru, Lower( OrdName(i ) ) )
-      i ++
-   ENDDO
-   cReply += LTrim( Str( i - 1 ) ) + ";" + cIndex
+   cReply += leto_IndexesInfo( nUserStru )
+   cRecData := leto_rec( nUserStru )
 
-   cReply += leto_rec( nId, nUserStru )
+   IF LEN( cRecData ) <= 0
+      RETURN "-004"
+   ENDIF
+
+   cReply += cRecData
    cLen := leto_N2B( Len( cReply ) )
 
    RETURN Chr( Len( cLen ) ) + cLen + cReply
 
 FUNCTION hs_openindex( nUserStru, cCommand )
-   LOCAL cReply, nId, cBagName, nPos, nIndexStru
-   LOCAL bOldError, oError, lres := .T. , nOrder := 1, cName, cIndex := ""
-   LOCAL nCount := 0
-   LOCAL cDataPath
+   LOCAL cReply, cBagName, cBagClean, nPos
+   LOCAL oError, lres := .T.
+   LOCAL cDataPath, cRecData
 
-   IF Empty( nId := Val( GetCmdItem( cCommand,1,@nPos ) ) )
+   IF Empty( cBagName := GetCmdItem( cCommand, 1, @nPos ) ) .OR. nPos == 0
       RETURN "-002"
    ENDIF
-   IF Empty( cBagName := GetCmdItem( cCommand,nPos + 1,@nPos ) )
-      RETURN "-002"
-   ENDIF
-   IF leto_SelectArea( nId, nUserStru )
+
+   cBagName  := StrTran( cBagName, DEF_CH_SEP, DEF_SEP )
+   IF Lower(cBagName) = "/mem:"
+      cDataPath := ""
+      cBagName := Substr(cBagName, 2)
+   ELSE
       cDataPath := leto_GetAppOptions( 1 )
-      cBagName  := StrTran( cBagName, DEF_CH_SEP, DEF_SEP )
-      IF DEF_SEP $ cBagName
+   ENDIF
+   IF DEF_SEP $ cBagName
+      IF !EMPTY(cDataPath)
          cBagName := cDataPath + iif( Left( cBagName,1 ) $ DEF_SEP, "", DEF_SEP ) + cBagName
-      ELSE
-         cBagName := cDataPath + FilePath( leto_TableName( nId,nUserStru ) ) + cBagName
       ENDIF
-      bOldError := ErrorBlock( { |e|break( e ) } )
-      BEGIN SEQUENCE
-         OrdListAdd( cBagName )
+   ELSE
+      cBagName := cDataPath + hb_FNameDir( leto_TableName( nUserStru ) ) + cBagName
+   ENDIF
+   //hb_FNameSplit( cBagName, Nil, @cBagClean, Nil )
+   //cBagClean := Lower( cBagClean )
+   cBagClean := Lower( hb_FNameName(cBagName) )
+   BEGIN SEQUENCE WITH { |e|break( e ) }
+      OrdListAdd( cBagName )
+      IF leto_GetAppOptions( LETO_CDX ) == LETO_NTX
+      /* WRONG! for second++ users : OrdSetFocus( OrdCount() ) */
+         nPos := 0
+         DO WHILE nPos < OrdCount()
+            IF Lower( OrdBagName( ++nPos ) ) == cBagClean
+               EXIT
+            ENDIF
+         ENDDO
+         OrdSetFocus( nPos )
+         cBagName := OrdBagName( nPos )
+      ELSE /* ToDo: logic check for CDX, with more than one CDX file */
          OrdSetFocus( OrdCount() )
          cBagName := OrdBagName()
-      RECOVER USING oError
-         lres := .F.
-      END SEQUENCE
-      ErrorBlock( bOldError )
-
-      IF !lres
-         RETURN ErrorStr("-003:", oError, cBagName)
       ENDIF
+   RECOVER USING oError
+      lres := .F.
+   END SEQUENCE
 
-      cReply := "+"
-      nOrder := 1
-      DO WHILE !Empty( cName := OrdKey( nOrder ) )
-         IF cBagName == OrdBagName( nOrder )
-            nCount ++
-            IF nCount == 1
-               nIndexStru := leto_InitIndex( nId, nUserStru, OrdBagName( nOrder ), cBagName )
-            ENDIF
-            cIndex += Leto_IndexInfo( nOrder, cName )
-            leto_addTag( nId, nUserStru, nIndexStru, Lower( OrdName(nOrder ) ) )
-         ENDIF
-         nOrder ++
-      ENDDO
-      cReply += LTrim( Str( nCount ) ) + ";" + cIndex
-      RETURN cReply + leto_rec( nId, nUserStru )
-
+   IF !lres
+      RETURN ErrorStr("-003:", oError, cBagName)
    ENDIF
 
-   RETURN "-003"
+   cReply := "+" + leto_IndexesInfo( nUserStru, cBagName )
 
-FUNCTION hs_OrderInfo( nUserStru, cCommand )
-   LOCAL nDefine, cOrder, nOrder, xNewSetting, nPos, nId
+   cRecData := leto_rec( nUserStru )
 
-   IF Empty( nId := Val( GetCmdItem( cCommand, 1, @nPos ) ) )
+   IF LEN( cRecData ) <= 0
       RETURN "-003"
    ENDIF
-   IF Empty( nDefine := Val( GetCmdItem( cCommand, nPos + 1, @nPos ) ) )
-      RETURN "-004"
-   ENDIF
-   cOrder := GetCmdItem( cCommand, nPos + 1, @nPos )
-   IF leto_SelectArea( nId, nUserStru )
-      nOrder := OrdNumber( cOrder )
-      IF Empty( xNewSetting := GetCmdItem( cCommand, nPos + 1, @nPos ) )
-         RETURN "+" + cValToChar( DbOrderInfo( nDefine,, nOrder ) ) + ";"
-      ELSEIF Ascan( { DBOI_ISDESC, DBOI_CUSTOM, DBOI_UNIQUE }, nDefine ) != 0
-         RETURN "+" + cValToChar( DbOrderInfo( nDefine,, nOrder, xNewSetting == "T" ) ) + ";"
-      ELSEIF Ascan( { DBOI_FINDREC, DBOI_FINDRECCONT, DBOI_KEYGOTO, DBOI_KEYGOTORAW, DBOI_POSITION, DBOI_RELKEYPOS, DBOI_SKIPUNIQUE }, nDefine ) != 0
-         RETURN "+" + cValToChar( DbOrderInfo( nDefine,, nOrder, Val( xNewSetting ) ) ) + ";"
-      ELSE
-         RETURN "+" + cValToChar( DbOrderInfo( nDefine,, nOrder, xNewSetting ) ) + ";"
-      ENDIF
-   ENDIF
 
-   RETURN "-010"
+   RETURN cReply + cRecData
 
 FUNCTION hs_createtable( nUserStru, cCommand )
-   LOCAL cName, cAlias, cFileName, cExt, i, nLen, cLen, nPos, aStru, cReply
-   LOCAL bOldError, oError, lres := .T. , nDriver, nTableStru, cRealAlias, nArea, nId
-   LOCAL lAnyExt := leto_GetAppOptions( 4 ), cDataPath := leto_GetAppOptions( 1 )
+   LOCAL cName, cAlias, cFileName, cExt, i, nLen, cLen, nPos, aStru, cReply, nAreaID
+   LOCAL oError, lres := .T. , nDriver, nTableStru, cRealAlias, nArea
+   LOCAL lAnyExt := leto_GetAppOptions( 4 ), cDataPath
+   LOCAL cRecData
 
    IF Empty( cName := GetCmdItem( cCommand,1,@nPos ) ) .OR. nPos == 0
-      RETURN "-002"
-   ENDIF
-   nArea := Val( cName )
-
-   IF Empty( cName := GetCmdItem( cCommand,nPos + 1,@nPos ) ) .OR. nPos == 0
       RETURN "-002"
    ENDIF
    cAlias := GetCmdItem( cCommand,nPos + 1,@nPos )
@@ -479,7 +596,7 @@ FUNCTION hs_createtable( nUserStru, cCommand )
       RETURN "-003"
    ENDIF
 
-   IF !lAnyExt .AND. !Empty( cExt := GetExten( cName ) ) .AND. cExt != "dbf"
+   IF !lAnyExt .AND. !Empty( cExt := hb_FNameExt( cName ) ) .AND. Lower( cExt ) != ".dbf"
       RETURN "-004"
    ENDIF
 
@@ -491,57 +608,71 @@ FUNCTION hs_createtable( nUserStru, cCommand )
       aStru[i,4] := Val( GetCmdItem( cCommand,nPos + 1,@nPos ) )
    NEXT
 
-   IF ( nDriver := leto_getDriver( Lower(cName ) ) ) == Nil
-      nDriver := leto_GetAppOptions( 2 )
-   ENDIF
-
    cName := StrTran( cName, DEF_CH_SEP, DEF_SEP )
-   IF Empty( getExten( cName ) )
+   IF Empty( hb_FNameExt( cName ) )
       cName += ".dbf"
    ENDIF
 
-   dbSelectArea()
-   cRealAlias := "A" + PadL( Select(), 6, '0' )
+   IF ( nDriver := leto_getDriver( hb_FNameDir(cName) ) ) == Nil
+      nDriver := leto_GetAppOptions( LETO_CDX )
+   ENDIF
 
+   nAreaID := leto_CreateAreaID()
+   cRealAlias := leto_MakeAlias( nAreaID )
+
+   IF Lower(cName) = "/mem:"
+      cDataPath := ""
+      cName := Substr(cName, 2)
+   ELSE
+      cDataPath := leto_GetAppOptions( 1 )
+   ENDIF
    cFileName := cDataPath + cName
-   bOldError := ErrorBlock( { |e|break( e ) } )
-   BEGIN SEQUENCE
+   BEGIN SEQUENCE WITH { |e|break( e ) }
       leto_SetUserEnv( nUserStru )
-      dbCreate( cFileName, aStru, iif( nDriver == 1,"DBFNTX",Nil ), .T. , cRealAlias )
+      dbCreate( cFileName, aStru, leto_Driver( nDriver ), .T. , cRealAlias )
    RECOVER USING oError
       lres := .F.
    END SEQUENCE
-   ErrorBlock( bOldError )
 
    IF !lres
+      leto_DelAreaID( nAreaID )
       RETURN ErrorStr("-011:", oError, cFileName)
    ENDIF
 
-   nTableStru := leto_InitTable( Select(), cName, nDriver, .F. )
+   IF ( nTableStru := leto_InitTable( nAreaID, cName, nDriver, .F. ) ) < 0
+      RETURN "-004"
+   ENDIF
 
-   nId := Select() * 512 + nArea
-   leto_InitArea( nUserStru, nTableStru, nId, cAlias )
+   IF leto_InitArea( nUserStru, nTableStru, nAreaID, cAlias, .F. ) < 0
+      RETURN "-004"
+   ENDIF
 
-   cReply := "+" + LTrim( Str( nId ) ) + ";" + ;
-      iif( nDriver == 1, "1;", "0;" )
+   cReply := "+" + LTrim( Str( nAreaID ) ) + ";" + ;
+      iif( nDriver == LETO_NTX, "1;", "0;" )
 
-   cReply += leto_rec( nId, nUserStru )
+   cRecData := leto_rec( nUserStru )
+
+   IF LEN( cRecData ) <= 0
+      RETURN "-004"
+   ENDIF
+
+   cReply += cRecData
+   cReply += letoMemoInfo()
    cLen := leto_N2B( Len( cReply ) )
 
    RETURN Chr( Len( cLen ) ) + cLen + cReply
 
 FUNCTION hs_createindex( nUserStru, cCommand )
-   LOCAL nId, nPos
+   LOCAL nPos
    LOCAL cBagName, cTagName, cKey, lUnique, cFor, cWhile
-   LOCAL bOldError, oError, lres := .T. , nIndexStru
+   LOCAL oError, lres := .T. , nIndexStru
    LOCAL cTemp
    LOCAL lAll, nRecno, nNext, nRecord, lRest, lDescend, lCustom, lAdditive
-   LOCAL lAnyExt := leto_GetAppOptions( 4 ), cDataPath := leto_GetAppOptions( 1 )
+   LOCAL lMemory, lFilter
+   LOCAL lAnyExt := leto_GetAppOptions( 4 ), cDataPath
+   LOCAL lUseCur, cOrder
 
-   IF Empty( nId := Val( GetCmdItem( cCommand,1,@nPos ) ) )
-      RETURN "-002"
-   ENDIF
-   cBagName := GetCmdItem( cCommand, nPos + 1, @nPos )
+   cBagName := GetCmdItem( cCommand, 1, @nPos )
    cTagName := GetCmdItem( cCommand, nPos + 1, @nPos )
    IF Empty( cBagName ) .AND. Empty( cTagName )
       RETURN "-002"
@@ -577,60 +708,87 @@ FUNCTION hs_createindex( nUserStru, cCommand )
    IF nPos != 0 .AND. !Empty( cTemp := GetCmdItem( cCommand,nPos + 1,@nPos ) )
       lAdditive := ( cTemp == "T" )
    ENDIF
+   IF nPos != 0 .AND. !Empty( cTemp := GetCmdItem( cCommand,nPos + 1,@nPos ) )
+      lMemory := ( cTemp == "T" )
+   ENDIF
+   IF nPos != 0 .AND. !Empty( cTemp := GetCmdItem( cCommand,nPos + 1,@nPos ) )
+      lFilter := ( cTemp == "T" )
+   ENDIF
+   IF nPos != 0 .AND. !Empty( cOrder := GetCmdItem( cCommand,nPos + 1,@nPos ) )
+      OrdSetFocus( cOrder )
+      lUseCur := .T.
+      leto_SetAreaEnv( nUserStru, cOrder )
+   ENDIF
 
    IF !lAnyExt .AND. !Empty( cBagName ) .AND. ;
-         !Empty( cTemp := GetExten( cBagName ) ) .AND. ;
-         ( Len( cTemp ) < 3 .OR. !( cTemp $ "cdx;idx;ntx" ) )
+         !Empty( cTemp := hb_FNameExt( cBagName ) ) .AND. ;
+         ( Len( cTemp ) < 4 .OR. !( Lower( Substr( cTemp, 2 ) ) $ "cdx;idx;ntx" ) )
       RETURN "-004"
    ENDIF
 
-   IF leto_SelectArea( nId, nUserStru )
-      IF !Empty( cBagName )
-         cBagName := StrTran( cBagName, DEF_CH_SEP, DEF_SEP )
-         IF DEF_SEP $ cBagName
-            IF ! Empty( cDataPath ) .AND. cBagName <> DEF_SEP
-               cBagName := DEF_SEP + cBagName
-            ENDIF
-            cBagName := cDataPath + iif( Left( cBagName,1 ) $ DEF_SEP, "", DEF_SEP ) + cBagName
-         ELSE
-            cBagName := cDataPath + FilePath( leto_TableName( nId,nUserStru ) ) + cBagName
-         ENDIF
+   IF !Empty( cBagName )
+      IF Empty( cTagName ) .AND. !( Lower(IndexExt())==".ntx" )
+         cTagName := hb_FNameName( cBagName )
       ENDIF
-      bOldError := ErrorBlock( { |e|break( e ) } )
-      BEGIN SEQUENCE
-         IF ! Empty( cFor ) .OR. ! Empty( cWhile ) .OR. lDescend != Nil .OR. ;
-               lAll != Nil .OR. nRecno != Nil .OR. nNext != Nil .OR. nRecord != Nil
-            ordCondSet( ;
-               iif( !Empty( cFor ), cFor, ), ;
-               iif( !Empty( cFor ), &( "{||" + cFor + "}" ), ), ;
-               iif( lAll != Nil, lAll, ), ;
-               iif( !Empty( cWhile ), &( "{||" + cWhile + "}" ), ), , , ;
-               iif( !Empty( nRecno ), nRecno, ), ;
-               iif( !Empty( nNext ), nNext, ), ;
-               iif( !Empty( nRecord ), nRecord, ), ;
-               iif( lRest != Nil, lRest, ), ;
-               iif( lDescend != Nil, lDescend, ), ;
-               iif( lAdditive != Nil, lAdditive, ), , , ;
-               iif( lCustom != Nil, lCustom, ), , ;
-               iif( ! Empty( cWhile ), cWhile, ) )
-         ENDIF
-         leto_SetUserEnv( nUserStru )
-         OrdCreate( cBagName, cTagName, cKey, &( "{||" + cKey + "}" ), lUnique )
-      RECOVER USING oError
-         lres := .F.
-      END SEQUENCE
-      ErrorBlock( bOldError )
-
-      IF !lres
-         RETURN ErrorStr("-003:", oError, cBagName)
+      cBagName := StrTran( cBagName, DEF_CH_SEP, DEF_SEP )
+      IF Lower(cBagName) = "/mem:"
+         cDataPath := ""
+         cBagName := Substr(cBagName, 2)
+      ELSE
+         cDataPath := leto_GetAppOptions( 1 )
       ENDIF
-
-      nIndexStru := leto_InitIndex( nId, nUserStru, OrdBagName( 0 ), cBagName )
-      leto_addTag( nId, nUserStru, nIndexStru, Lower( cTagName ) )
-      RETURN "++"
+      IF DEF_SEP $ cBagName
+         IF ! Empty( cDataPath ) .AND. cBagName <> DEF_SEP
+            cBagName := DEF_SEP + cBagName
+         ENDIF
+         cBagName := cDataPath + iif( Left( cBagName,1 ) $ DEF_SEP, "", DEF_SEP ) + cBagName
+      ELSE
+         cBagName := cDataPath + hb_FNameDir( leto_TableName( nUserStru ) ) + cBagName
+      ENDIF
    ENDIF
 
-   RETURN "-002"
+   BEGIN SEQUENCE WITH { |e|break( e ) }
+      IF ! Empty( cFor ) .OR. ! Empty( cWhile ) .OR. lDescend != Nil .OR. ;
+            lAll != Nil .OR. nRecno != Nil .OR. nNext != Nil .OR. nRecord != Nil .OR. ;
+            lRest != Nil .OR. lDescend != Nil .OR. lAdditive != Nil .OR. ;
+            lCustom != Nil .OR. lMemory != Nil .OR. lFilter != Nil .OR. lUseCur != Nil
+         ordCondSet( ;
+            iif( !Empty( cFor ), cFor, ), ;
+            iif( !Empty( cFor ), &( "{||" + cFor + "}" ), ), ;
+            iif( lAll != Nil, lAll, ), ;
+            iif( !Empty( cWhile ), &( "{||" + cWhile + "}" ), ), , , ;
+            iif( !Empty( nRecno ), nRecno, ), ;
+            iif( !Empty( nNext ), nNext, ), ;
+            iif( !Empty( nRecord ), nRecord, ), ;
+            iif( lRest != Nil, lRest, ), ;
+            iif( lDescend != Nil, lDescend, ), , ;
+            iif( lAdditive != Nil, lAdditive, ), ;
+            iif( lUseCur != Nil, lUseCur, ), ;
+            iif( lCustom != Nil, lCustom, ), , ;
+            iif( ! Empty( cWhile ), cWhile, ), ;
+            iif( lMemory != Nil, lMemory, ), ;
+            iif( lFilter != Nil, lFilter, ), )
+      ENDIF
+      leto_SetUserEnv( nUserStru )
+      OrdCreate( cBagName, cTagName, cKey, &( "{||" + cKey + "}" ), lUnique )
+   RECOVER USING oError
+      lres := .F.
+   END SEQUENCE
+
+   IF ( lFilter != Nil .AND. lFilter ) .OR. ( lUseCur != Nil .AND. lUseCur )
+      leto_ClearAreaEnv( nUserStru, cOrder )
+   ENDIF
+
+   IF !lres
+      RETURN ErrorStr("-003:", oError, cBagName)
+   ENDIF
+
+   nIndexStru := leto_InitIndex( nUserStru, OrdBagName( OrdCount() ), cBagName )
+   IF !Empty( cTagName )
+      leto_addTag( nUserStru, nIndexStru, cTagName )
+   ENDIF
+
+   RETURN "++;" + leto_rec( nUserStru )
 
 #define EF_CANRETRY                     1
 #define EF_CANSUBSTITUTE                2
@@ -650,26 +808,30 @@ STATIC FUNCTION ErrorStr(cSign, oError, cFileName)
 
    WrLog( Leto_ErrorMessage( oError ) )
 
-   RETURN cSign + LTrim( Str( oError:genCode ) ) + "-" + LTrim( Str( oError:subCode ) ) ;
-          + "-" + LTrim( Str( oError:osCode ) ) + "-" + LTrim( Str( nFlags ) ) ;
+   RETURN cSign ;
+          + Iif( ISNUMBER(oError:genCode), LTrim( Str( oError:genCode ) ), "0" ) ;
+          + "-" + Iif( ISNUMBER(oError:subCode), LTrim(Str(oError:subCode)), "0" ) ;
+          + "-" + Iif( ISNUMBER(oError:osCode), LTrim( Str( oError:osCode ) ), "0" ) ;
+          + "-" + LTrim( Str( nFlags ) ) ;
           + Chr(9) + cFileName
-
-INIT PROCEDURE INITP
-   hb_ipInit()
-
-   RETURN
 
 EXIT PROCEDURE EXITP
 
+   LOCAL pExit
+
+   IF !Empty( pHrb ) .AND. !Empty( pExit := hb_hrbGetFunSym(pHrb, 'UDF_Exit') )
+      hb_ExecFromArray( pExit )
+   ENDIF
+
    leto_ReleaseData()
-   hb_ipCleanup()
-   leto_CloseMemArea()
 
    RETURN
 
 CLASS HApp
 
    DATA nPort     INIT 2812
+   DATA ip
+   DATA nTimeOut  INIT -1
    DATA DataPath  INIT ""
    DATA LogFile   INIT ""
    DATA lLower    INIT .F.
@@ -683,6 +845,8 @@ CLASS HApp
    DATA lPass4D   INIT .F.
    DATA cPassName INIT "leto_users"
    DATA lCryptTraffic INIT .F.
+   DATA cTrigger
+   DATA cPendingTrigger
 
    METHOD New()
 
@@ -694,19 +858,32 @@ METHOD New() CLASS HApp
    LOCAL nPort
    LOCAL nMaxVars, nMaxVarSize
    LOCAL nCacheRecords := 10
+   LOCAL nTables_max := NIL
+   LOCAL nUsers_max := NIL
+   LOCAL nDebugMode := 0
+   LOCAL lOptimize := .F.
+   LOCAL nAutOrder
+   LOCAL nMemoType
+   LOCAL lForceOpt := .F.
+   LOCAL lSetTrigger := .F.
+   LOCAL nUDF := 1
 
 #ifdef __LINUX__
 
-   IF File( cIniName )
-      aIni := rdIni( cIniName )
+   IF File( cDirBase + cIniName )
+      aIni := rdIni( cDirBase + cIniName )
    ELSEIF File( "/etc/" + cIniName )
       aIni := rdIni( "/etc/" + cIniName )
-   ELSE
-      RETURN Nil
    ENDIF
+
 #else
-   aIni := rdIni( cIniName )
+
+   IF File( cDirBase + cIniName )
+      aIni := rdIni( cDirBase + cIniName )
+   ENDIF
+
 #endif
+
    IF !Empty( aIni )
       FOR i := 1 TO Len( aIni )
          IF aIni[i,1] == "MAIN"
@@ -715,16 +892,22 @@ METHOD New() CLASS HApp
                   IF ( nPort := Val( aIni[i,2,j,2] ) ) >= 2000
                      ::nPort := nPort
                   ENDIF
+               ELSEIF aIni[i,2,j,1] == "IP"
+                  ::ip := aIni[i,2,j,2]
+               ELSEIF aIni[i,2,j,1] == "TIMEOUT"
+                  ::nTimeOut := Val( aIni[i,2,j,2] )
                ELSEIF aIni[i,2,j,1] == "DATAPATH"
                   ::DataPath := StrTran( aIni[i,2,j,2], DEF_CH_SEP, DEF_SEP )
                   IF Right( ::DataPath, 1 ) $ DEF_SEP
                      ::DataPath := Left( ::DataPath, Len( ::DataPath ) - 1 )
                   ENDIF
-               ELSEIF aIni[i,2,j,1] == "LOG"
-                  IF GetExten( aIni[i,2,j,2] ) == "log"
-                     ::LogFile := StrTran( aIni[i,2,j,2], DEF_CH_SEP, DEF_SEP )
-                  ELSE
-                     WrLog( "Wrong logfile extension" )
+               ELSEIF aIni[i,2,j,1] == "LOGPATH"
+                  ::LogFile := StrTran( aIni[i,2,j,2], DEF_CH_SEP, DEF_SEP )
+                  IF !EMPTY( ::LogFile )
+                     IF Right( ::LogFile, 1 ) != DEF_SEP
+                        ::LogFile += DEF_SEP
+                     ENDIF
+                     leto_setDirBase( ::LogFile )
                   ENDIF
                ELSEIF aIni[i,2,j,1] == "LOWER_PATH"
                   ::lLower := ( aIni[i,2,j,2] == '1' )
@@ -732,12 +915,14 @@ METHOD New() CLASS HApp
                   ::lFileFunc := ( aIni[i,2,j,2] == '1' )
                ELSEIF aIni[i,2,j,1] == "ENABLEANYEXT"
                   ::lAnyExt := ( aIni[i,2,j,2] == '1' )
+               ELSEIF aIni[i,2,j,1] == "ENABLEUDF" .and. Val(aIni[i,2,j,2]) >= 0 .and. Val(aIni[i,2,j,2]) <= 2
+                  nUDF := Val( aIni[i,2,j,2] )
                ELSEIF aIni[i,2,j,1] == "SHARE_TABLES"
                   ::lShare := ( aIni[i,2,j,2] == '1' )
                ELSEIF aIni[i,2,j,1] == "NO_SAVE_WA"
                   ::lNoSaveWA := ( aIni[i,2,j,2] == '1' )
                ELSEIF aIni[i,2,j,1] == "DEFAULT_DRIVER"
-                  ::nDriver := iif( Lower( aIni[i,2,j,2] ) == "ntx", 1, 0 )
+                  ::nDriver := iif( Lower( aIni[i,2,j,2] ) == "ntx", LETO_NTX, 0 )
                ELSEIF aIni[i,2,j,1] == "PASS_FOR_LOGIN"
                   ::lPass4L := ( aIni[i,2,j,2] == '1' )
                ELSEIF aIni[i,2,j,1] == "PASS_FOR_MANAGE"
@@ -756,6 +941,38 @@ METHOD New() CLASS HApp
                   IF ( nCacheRecords := Val( aIni[i,2,j,2] ) ) <= 0
                       nCacheRecords := 10
                   ENDIF
+               ELSEIF aIni[i,2,j,1] == "TABLES_MAX"
+                  IF ( nTables_max := Val( aIni[i,2,j,2] ) ) <= 100 .OR. nTables_max > 200000
+                      nTables_max := NIL
+                  ENDIF
+               ELSEIF aIni[i,2,j,1] == "USERS_MAX"
+                  IF ( nUsers_max := Val( aIni[i,2,j,2] ) ) <= 10 .OR. nUsers_max > 100000
+                      nUsers_max := NIL
+                  ENDIF
+               ELSEIF aIni[i,2,j,1] == "DEBUG"
+                  IF ( nDebugMode := Val( aIni[i,2,j,2] ) ) <= 0
+                      nDebugMode := 0
+                  ENDIF
+               ELSEIF aIni[i,2,j,1] == "OPTIMIZE"
+                  lOptimize := ( aIni[i,2,j,2] == '1' )
+               ELSEIF aIni[i,2,j,1] == "AUTORDER"
+                  nAutOrder := Val( aIni[i,2,j,2] )
+               ELSEIF aIni[i,2,j,1] == "MEMO_TYPE"
+                  IF Lower( aIni[i,2,j,2] ) = 'dbt'
+                     nMemoType := DB_MEMO_DBT
+                  ELSEIF Lower( aIni[i,2,j,2] ) = 'fpt'
+                     nMemoType := DB_MEMO_FPT
+                  ELSEIF Lower( aIni[i,2,j,2] ) = 'smt'
+                     nMemoType := DB_MEMO_SMT
+                  ENDIF
+               ELSEIF aIni[i,2,j,1] == "FORCEOPT"
+                  lForceOpt := ( aIni[i,2,j,2] == '1' )
+               ELSEIF aIni[i,2,j,1] == "ENABLESETTRIGGER"
+                  lSetTrigger := ( aIni[i,2,j,2] == '1' )
+               ELSEIF aIni[i,2,j,1] == "TRIGGER"
+                  ::cTrigger := aIni[i,2,j,2]
+               ELSEIF aIni[i,2,j,1] == "PENDINGTRIGGER"
+                  ::cPendingTrigger := aIni[i,2,j,2]
                ENDIF
             NEXT
          ELSEIF aIni[i,1] == "DATABASE"
@@ -768,10 +985,17 @@ METHOD New() CLASS HApp
                   ENDIF
                ELSEIF aIni[i,2,j,1] == "DRIVER"
                   nDriver := iif( ( cTemp := Lower( aIni[i,2,j,2] ) ) == "cdx", ;
-                     0, iif( cTemp == "ntx", 1, Nil ) )
+                     0, iif( cTemp == "ntx", LETO_NTX, Nil ) )
                ENDIF
             NEXT
             IF cPath != Nil
+               cPath := StrTran( cPath, DEF_CH_SEP, DEF_SEP )
+               IF Left( cPath,1 ) != DEF_SEP
+                  cPath := DEF_SEP + cPath
+               ENDIF
+               IF Right( cPath,1 ) != DEF_SEP
+                  cPath += DEF_SEP
+               ENDIF
                leto_AddDataBase( cPath, iif( nDriver == Nil,::nDriver,nDriver ) )
             ENDIF
          ENDIF
@@ -788,12 +1012,35 @@ METHOD New() CLASS HApp
 
    leto_SetAppOptions( iif( Empty(::DataPath ),Nil,::DataPath ), ::nDriver, ::lFileFunc, ;
          ::lAnyExt, ::lPass4L, ::lPass4M, ::lPass4D, ::cPassName, ::lCryptTraffic, ;
-         ::lShare, ::lNoSaveWA, nMaxVars, nMaxVarSize, nCacheRecords )
+         ::lShare, ::lNoSaveWA, nMaxVars, nMaxVarSize, nCacheRecords, nTables_max, nUsers_max, ;
+         nDebugMode, lOptimize, nAutOrder, nMemoType, lForceOpt, ::cTrigger, ::cPendingTrigger, lSetTrigger, nUDF )
 
    RETURN Self
 
-#ifdef __XHARBOUR__
 
-PROCEDURE HB_GT_WIN (); RETURN
+FUNCTION leto_SetEnv( xScope, xScopeBottom, xOrder, cFilter, lDeleted )
+   IF ! Empty( xOrder )
+      OrdSetFocus( xOrder )
+   ENDIF
+   IF ValType(cFilter) == "C"
+      dbSetFilter( &( "{||" + cFilter + "}" ), cFilter )
+   ENDIF
+   IF lDeleted != Nil
+      Set( _SET_DELETED, lDeleted )
+   ENDIF
 
-#endif
+   IF xScope != Nil
+      dbOrderInfo(DBOI_SCOPETOP,,, xScope)
+      dbOrderInfo(DBOI_SCOPEBOTTOM,,, iif( xScopeBottom == Nil, xScope, xScopeBottom ) )
+   ENDIF
+   RETURN Nil
+
+FUNCTION leto_ClearEnv( xScope, xScopeBottom, cFilter )
+   IF xScope != Nil
+      dbOrderInfo(DBOI_SCOPETOPCLEAR)
+      dbOrderInfo(DBOI_SCOPEBOTTOMCLEAR)
+   ENDIF
+   IF ValType(cFilter) == "C"
+      dbClearFilter()
+   ENDIF
+   RETURN Nil

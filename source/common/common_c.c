@@ -1,4 +1,4 @@
-/*  $Id: common_c.c,v 1.15.2.6 2013/12/26 12:26:59 alkresin Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:

@@ -72,7 +72,7 @@
 
       Port = 2812              -    Numero da porta do servidor
       DataPath = \dados        -    Um caminho para um diretório de dados(DBF) em um servidor, esse caminho é valido apartir de onde o server do letoDB esta iniciando
-      Logfile = "letodb.log"   -    caminho e o nome de um arquivo de log, nesse exemplo esta criando no mesmo diretorio onde o letodb.exe esta iniciando
+      LogPath = "letodb.log"   -    caminho e o nome de um arquivo de log, nesse exemplo esta criando no mesmo diretorio onde o letodb.exe esta iniciando
       Default_Driver = CDX     -    Padrão RDD para abrir arquivos no servidor ( CDX/NTX ) o Padrão é CDX
       Lower_Path = 0           -    Caso seja definido como 1, vai converter todos os caminhos para minúsculas
       EnableFileFunc = 0            Caso seja definido como 1, vai Ativar o uso de funções como( leto_file(),leto_ferase(), leto_frename() )

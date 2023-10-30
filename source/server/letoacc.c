@@ -1,4 +1,4 @@
-/*  $Id: letoacc.c,v 1.8 2010/08/13 16:43:27 ptsarenko Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -51,20 +51,10 @@
 #include "hbapi.h"
 #include "hbapiitm.h"
 #include "hbapifs.h"
-#ifdef __XHARBOUR__
-   #include "hbfast.h"
-#else
-   #include "hbapicls.h"
-#endif
+#include "hbapicls.h"
 #include "hbapierr.h"
 #include "math.h"
 #include "srvleto.h"
-
-#if defined( HB_IO_WIN )
-   typedef HB_PTRDIFF LETO_FHANDLE;
-#else
-   typedef int LETO_FHANDLE;
-#endif
 
 /* EOL:  DOS - \r\n  Unix - \n,  \r = 13, \n = 10 */
 
@@ -87,8 +77,7 @@ extern BOOL   bPass4L;
 extern BOOL   bPass4M;
 extern BOOL   bPass4D;
 extern char * pAccPath;
-
-extern USHORT uiAnswerSent;
+extern BOOL   bLockConnect;
 
 extern const char * szOk;
 extern const char * szErr2;
@@ -99,6 +88,9 @@ extern const char * szErrAcc;
 
 extern int leto_GetParam( const char *szData, const char **pp2, const char **pp3, const char **pp4, const char **pp5 );
 extern void leto_SendAnswer( PUSERSTRU pUStru, const char* szData, ULONG ulLen );
+extern void leto_wUsLog( PUSERSTRU pUStru, const char* s, int n );
+extern void leto_TryLock( int iSecs );
+extern BOOL leto_ServerLock( PUSERSTRU pUStru, BOOL bLock );
 
 #define ACC_REALLOC       20
 
@@ -114,10 +106,10 @@ extern void leto_SendAnswer( PUSERSTRU pUStru, const char* szData, ULONG ulLen )
 
 char * leto_memoread( const char * szFilename, ULONG *pulLen )
 {
-   LETO_FHANDLE fhnd;
+   HB_FHANDLE fhnd;
    char * pBuffer = NULL;
 
-   fhnd = hb_fsOpen( (char*) szFilename, FO_READ | FO_SHARED );
+   fhnd = hb_fsOpen( (char*) szFilename, FO_READ | FO_SHARED | FO_PRIVATE );
    if( fhnd != FS_ERROR )
    {
       *pulLen = hb_fsSeek( fhnd, 0, FS_END );
@@ -126,13 +118,163 @@ char * leto_memoread( const char * szFilename, ULONG *pulLen )
          pBuffer = ( char * ) hb_xgrab( *pulLen + 1 );
 
          hb_fsSeek( fhnd, 0, FS_SET );
-         hb_fsReadLarge( fhnd, pBuffer, *pulLen );
-         pBuffer[*pulLen] = '\0';
+         if( hb_fsReadLarge( fhnd, pBuffer, *pulLen ) != *pulLen )
+         {
+            hb_xfree( pBuffer );
+            *pulLen = 0;
+            pBuffer = NULL;
+         }
+         else
+            pBuffer[*pulLen] = '\0';
       }
       hb_fsClose( fhnd );
    }
    else
       *pulLen = 0;
+   return pBuffer;
+}
+
+BOOL leto_memowrite( const char * szFilename, const char * pBuffer, ULONG ulLen )
+{
+   HB_FHANDLE fhnd;
+   BOOL bRetVal = FALSE;
+
+   if( ( fhnd = hb_fsCreate( szFilename, FC_NORMAL ) ) != FS_ERROR )
+   {
+      bRetVal = ( hb_fsWriteLarge( fhnd, pBuffer, ulLen ) == ulLen );
+
+      hb_fsClose( fhnd );
+   }
+
+   return bRetVal;
+}
+
+BOOL leto_fileread( const char * szFilename, const char * pBuffer, const ULONG ulStart, ULONG *pulLen )
+{
+   HB_FHANDLE fhnd;
+   BOOL bRes = FALSE;
+
+   if( *pulLen <= 0 )
+      return bRes;
+
+   fhnd = hb_fsOpen( (char*) szFilename, FO_READ | FO_SHARED | FO_PRIVATE );
+   if( fhnd != FS_ERROR )
+   {
+      if( (ULONG) hb_fsSeekLarge( fhnd, ulStart, FS_SET ) == ulStart )
+      {
+         *pulLen = hb_fsReadLarge( fhnd, (void*)pBuffer, *pulLen );
+         bRes = TRUE;
+      }
+      hb_fsClose( fhnd );
+   }
+
+   return bRes;
+}
+
+BOOL leto_filewrite( const char * szFilename, const char * pBuffer, const ULONG ulStart, ULONG ulLen )
+{
+   HB_FHANDLE fhnd;
+   BOOL bRetVal = FALSE;
+
+   if( ( fhnd = hb_fsOpen( szFilename, FO_CREAT | FO_WRITE ) ) != FS_ERROR )
+   {
+      if( (ULONG) hb_fsSeekLarge( fhnd, ulStart, FS_SET ) == ulStart )
+         bRetVal = ( hb_fsWriteLarge( fhnd, pBuffer, ulLen ) == ulLen );
+
+      hb_fsClose( fhnd );
+   }
+
+   return bRetVal;
+}
+
+BOOL leto_filesize( const char * szFilename, ULONG *pulLen )
+{
+   HB_FHANDLE fhnd;
+   BOOL bRes = FALSE;
+
+   fhnd = hb_fsOpen( (char*) szFilename, FO_READ | FO_SHARED );
+   if( fhnd != FS_ERROR )
+   {
+      *pulLen = hb_fsSeekLarge( fhnd, 0L, FS_END );
+      bRes = TRUE;
+      hb_fsClose( fhnd );
+   }
+
+   return bRes;
+}
+
+char * leto_directory( const char * szDirSpec, const char * szAttributes, char * pBuffer, ULONG *pulLen )
+{
+   HB_FATTR    ulMask;
+   PHB_FFIND   ffind;
+   char *      pszFree = NULL;
+   ULONG       ulMaxLen = *pulLen;
+   int iLen;
+
+   /* Get the passed attributes and convert them to Harbour Flags */
+   ulMask = HB_FA_ARCHIVE
+          | HB_FA_READONLY
+          | HB_FA_DEVICE
+          | HB_FA_TEMPORARY
+          | HB_FA_SPARSE
+          | HB_FA_REPARSE
+          | HB_FA_COMPRESSED
+          | HB_FA_OFFLINE
+          | HB_FA_NOTINDEXED
+          | HB_FA_ENCRYPTED
+          | HB_FA_VOLCOMP;
+
+   if( szAttributes && *szAttributes )
+      ulMask |= hb_fsAttrEncode( szAttributes );
+
+   /* !TODO! Correct: HB_OS_ALLFILE_MASK */
+   /* !TODO! Correct: OS code page */
+   
+   /* add all file mask when last character is directory */
+   iLen = strlen( szDirSpec );
+   if( szDirSpec[iLen-1] == HB_OS_PATH_DELIM_CHR )
+   {
+      pszFree = hb_xgrab( iLen + 5 );
+      memcpy( pszFree, szDirSpec, iLen );
+      szDirSpec = pszFree;
+#if defined( HB_OS_WIN_32 ) || defined( HB_OS_WIN )
+      strcpy( pszFree+iLen, "*.*" );
+#else
+      strcpy( pszFree+iLen, "*" );
+#endif
+   }
+
+   /* Get the file list */
+   if( ( ffind = hb_fsFindFirst( szDirSpec, ulMask ) ) != NULL )
+   {
+      do
+      {
+         char buf[ 32 ];
+
+         if( ulMaxLen <= *pulLen + _POSIX_PATH_MAX * 10 + 1024 )
+         {
+            ulMaxLen = *pulLen + _POSIX_PATH_MAX * 10 + 1024;
+            pBuffer  = hb_xrealloc( pBuffer, ulMaxLen );
+         }
+         hb_fsAttrDecode( ffind->attr, buf );
+
+         sprintf( pBuffer+*pulLen, "%s;%lu;%lu;%s;%s;", ffind->szName, (ULONG)ffind->size, ffind->lDate, ffind->szTime, buf );
+         *pulLen += strlen( pBuffer+*pulLen );
+      }
+      while( hb_fsFindNext( ffind ) );
+
+      hb_fsFindClose( ffind );
+   }
+   else
+   {
+      hb_xfree( pBuffer );
+      pBuffer = NULL;
+      *pulLen = 0;
+   }
+
+   if( pszFree )
+      hb_xfree( pszFree );
+
    return pBuffer;
 }
 
@@ -348,7 +490,7 @@ BOOL leto_acc_setacc( const char * szUser, const char * szAccess )
 
 void leto_acc_flush( const char * szFilename )
 {
-   LETO_FHANDLE fhnd;
+   HB_FHANDLE fhnd;
    PACCSTRU pacc;
    int i, j;
    char szBuf[96], *ptr;
@@ -411,7 +553,7 @@ void leto_Admin( PUSERSTRU pUStru, char* szData )
          pData = szErr2;
       else
       {
-         if( !strncmp( szData,"uadd;",5 ) || !strncmp( szData,"upsw;",5 ) )
+         if( !strncmp( szData,"uadd",4 ) || !strncmp( szData,"upsw",4 ) )
          {
             if( nParam < 3 )
                pData = szErr4;
@@ -458,7 +600,7 @@ void leto_Admin( PUSERSTRU pUStru, char* szData )
                   pData = szErr4;
             }
          }
-         else if( !strncmp( szData,"uacc;",5 ) )
+         else if( !strncmp( szData,"uacc",4 ) )
          {
             if( nParam < 3 )
                pData = szErr4;
@@ -472,10 +614,33 @@ void leto_Admin( PUSERSTRU pUStru, char* szData )
                   pData = szErr4;
             }
          }
-         else if( !strncmp( szData,"flush;",6 ) )
+         else if( !strncmp( szData,"flush",5 ) )
          {
             leto_acc_flush( pAccPath );
             pData = szOk;
+         }
+         else if( !strncmp( szData,"lockc",5 ) )
+         {
+            bLockConnect = (*pp1 == 'T');
+            pData = szOk;
+         }
+         else if( !strncmp( szData,"lockl",5 ) )
+         {
+            BOOL bLock;
+            if( *pp1 != '?' )
+            {
+               bLock = (*pp1 == 'T');
+               leto_ServerLock( pUStru, bLock );
+               if( bLock )
+               {
+                  int iSecs;
+                  sscanf( pp2, "%d", &iSecs);
+                  leto_TryLock( iSecs );
+               }
+            }
+            else
+               bLock = leto_ServerLock( NULL, FALSE );
+            pData = bLock ? szOk : szErr4;
          }
          else
             pData = szErr3;
@@ -484,5 +649,5 @@ void leto_Admin( PUSERSTRU pUStru, char* szData )
    else
       pData = szErrAcc;
    leto_SendAnswer( pUStru, pData, 4 );
-   uiAnswerSent = 1;
+   pUStru->bAnswerSent = 1;
 }

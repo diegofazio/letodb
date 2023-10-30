@@ -1,4 +1,4 @@
-/* $Id: rddsys.prg,v 1.2 2009/06/05 13:57:22 alkresin Exp $  */
+/* $Id$  */
 
 /*
  * Harbour Project source code:

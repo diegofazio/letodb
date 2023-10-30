@@ -1,4 +1,4 @@
-/*  $Id: errorsys.prg,v 1.5 2010/06/24 17:23:57 ptsarenko Exp $  */
+/*  $Id$  */
 /*
  * Harbour Project source code:
  * The default error handler
@@ -85,7 +85,7 @@ STATIC FUNCTION DefError( oError )
    ENDIF
 
    WrLog( Leto_ErrorMessage( oError ) + Iif( Empty(oError:osCode), "", ;
-            " (DOS Error " + LTrim( Str( oError:osCode ) ) + ")" ) + " " + get_curr_user() )
+            " (DOS Error " + LTrim( Str( oError:osCode ) ) + ")" ) )
 
    SetHrbError()
    Break( oError )
@@ -140,32 +140,8 @@ LOCAL xArg, cArguments := "", i
  
 RETURN cArguments 
 
-Function WrLog( cText,cFile,lDateTime )
-LOCAL nHand
-Memvar oApp
+Function WrLog( cText )
 
-  IF cFile == Nil
-     IF Type( "OAPP" ) != "O" .OR. Empty( cFile := oApp:LogFile )
-        cFile := "letodb.log"
-     ENDIF
-  ENDIF
-  IF lDateTime == Nil
-     lDateTime := .T.
-  ENDIF
-   
-  IF !File( cFile )           
-     nHand := Fcreate( cFile )
-  ELSE                                     
-     nHand := Fopen( cFile,1)
-  ENDIF
-  IF Ferror() != 0                           
-     Return .F.
-  ENDIF
-
-  Fseek(nHand, 0,2 )
-  Fwrite( nHand, Iif(lDateTime,Dtoc(Date())+" "+Time()+": ","") + cText + hb_osNewLine() )
-
-  Fclose( nHand )
+  leto_wUsLog( Dtoc(Date())+" "+Time()+": " + cText + Chr(13)+Chr(10) )
 
 Return .T.
-

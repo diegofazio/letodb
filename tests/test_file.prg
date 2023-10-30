@@ -1,4 +1,4 @@
-/* $Id: test_file.prg,v 1.1.2.2 2013/12/19 10:56:09 alkresin Exp $ */
+/* $Id$ */
 /*
  * This sample demonstrates how to use file functions with Leto db server
  * EnableFileFunc = 1 must be set in server's letodb.ini

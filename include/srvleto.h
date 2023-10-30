@@ -1,4 +1,4 @@
-/*  $Id: srvleto.h,v 1.9 2010/06/26 09:20:07 ptsarenko Exp $  */
+/*  $Id$  */
 
 /*
  * Harbour Project source code:
@@ -49,11 +49,15 @@
  */
 
 #define HB_EXTERNAL_RDDDBF_USE
+#include "hbthread.h"
+#include "hbsocket.h"
 #include "hbrdddbf.h"
 // #include "hbapirdd.h"
 #include "funcleto.h"
 #include "rddleto.ch"
 
+
+/*
 #if defined( HB_OS_WIN_32 ) || defined( HB_OS_WIN )
    #include "windows.h"
    #include <process.h>
@@ -85,6 +89,25 @@
    #define LETO_THREAD_FUNC  void *
    extern BOOL leto_ThreadCreate( void* (*ThreadFunc)(void*) );
 #endif
+*/
+
+typedef struct _LETO_LIST_ITEM
+{
+   struct _LETO_LIST_ITEM * pNext;
+} LETO_LIST_ITEM, *PLETO_LIST_ITEM;
+
+typedef struct _LETO_LOCK_ITEM
+{
+   struct _LETO_LOCK_ITEM * pNext;
+   ULONG ulRecNo;
+} LETO_LOCK_ITEM, *PLETO_LOCK_ITEM;
+
+typedef struct
+{
+   PHB_ITEM        pMutex;
+   ULONG           ulSize;
+   PLETO_LIST_ITEM pItem;
+} LETO_LIST, *PLETO_LIST;
 
 typedef struct _VAR_LINK
 {
@@ -109,17 +132,18 @@ typedef struct
 
 typedef struct
 {
-   USHORT      uiAreaNum;
+   ULONG       ulAreaID;               /* Global area number (virtual) */
    USHORT      uiDriver;
-   USHORT      uiAreas;
+   USHORT      uiAreas;                /* Number of referens? */
    BOOL        bShared;
    BOOL        bLocked;
    BYTE *      szTable;
-   ULONG *     pLocksPos;              /* List of records locked */
-   ULONG       ulLocksMax;             /* Number of records locked */
-   ULONG       ulLocksAlloc;           /* Number of records locked (allocated) */
-   PINDEXSTRU  pIStru;
-   USHORT      uiIndexAlloc;
+   LETO_LIST   LocksList;              /* List of records locked */
+   LETO_LIST   IndexList;              /* Index List */
+   USHORT      uiIndexCount;
+   ULONG       ulFlags;                /* Lock flags */
+   long        lWriteDate;             /* Last write date and time */
+   long        lWriteTime;
 } TABLESTRU, *PTABLESTRU;
 
 typedef struct _LETOTAG
@@ -133,27 +157,35 @@ typedef struct _LETOTAG
 
 typedef struct
 {
-   ULONG       ulAreaNum;
+   ULONG       ulAreaID;               /* Global area number (virtual) */
    PTABLESTRU  pTStru;
    BOOL        bLocked;
-   ULONG *     pLocksPos;              /* List of records locked */
-   ULONG       ulLocksMax;             /* Number of records locked */
-   ULONG       ulLocksAlloc;           /* Number of records locked (allocated) */
+   LETO_LIST   LocksList;              /* List of records locked */
    USHORT      uiSkipBuf;
    LETOTAG *   pTag;
    PHB_ITEM    itmFltExpr;
-   char        szAlias[HB_RDD_MAX_ALIAS_LEN + 1];
+   char        szAlias[HB_RDD_MAX_ALIAS_LEN + 1];  /* alias (client) */
+   BOOL        bNotDetach;             /* Detached */
+   BOOL        bUseBuffer;
+   long        lReadDate;              /* Last read date and time */
+   long        lReadTime;
+#ifdef __BM
+   BOOL        fFilter;
+   void *      pBM;
+#endif
 } AREASTRU, *PAREASTRU;
 
 typedef struct
 {
-   HB_SOCKET_T hSocket;
+   int         iUserStru;
+   HB_SOCKET   hSocket;
    BYTE *      pBuffer;
    ULONG       ulBufferLen;
-   ULONG       ulStartPos;
-   BYTE *      pBufRead;
-   ULONG       ulDataLen;
-   BYTE *      szVersion;
+   BYTE *      pSendBuffer;
+   ULONG       ulSendBufferLen;
+   char *      szVersion;
+   unsigned int uiMajorVer;
+   unsigned int uiMinorVer;
    BYTE *      szAddr;
    BYTE *      szNetname;
    BYTE *      szExename;
@@ -163,15 +195,28 @@ typedef struct
    char        szAccess[2];
    char        szDopcode[2];
    double      dLastAct;
-   PAREASTRU   pAStru;
-   USHORT      uiAreasAlloc;
+   LETO_LIST   AreasList;
+   USHORT      uiAreasCount;
    VAR_LINK *  pVarLink;
    USHORT      uiVarsOwnCurr;
+   HB_THREAD_HANDLE hThread;
+   HB_THREAD_ID hThreadID;
+   /* variables for the current command */
+   ULONG       ulDataLen;                 /* Lenght of buffer */
+   BYTE *      pBufRead;                  /* buffer (command) */
+   ULONG       ulCurAreaID;               /* Global area number (virtual) */
+   PAREASTRU   pCurAStru;
+   BOOL        bAnswerSent;
+   BOOL        bHrbError;
+   BYTE     *  pBufCrypt;
+   ULONG       ulBufCryptLen;
+   BOOL        bBufKeyNo;
+   BOOL        bBufKeyCount;
 } USERSTRU, *PUSERSTRU;
 
 typedef struct
 {
-   DBFAREAP    pArea;
+   AREAP       pArea;
    ULONG       ulRecNo;
    BOOL        bAppend;
    USHORT      uiFlag;
@@ -180,13 +225,22 @@ typedef struct
    PHB_ITEM *  pItems;
 } TRANSACTSTRU;
 
-extern BOOL leto_ReadMemArea( char * szBuffer, int iAddr, int iLength );
-extern BOOL leto_WriteMemArea( const char * szBuffer, int iAddr, int iLength );
-extern BOOL leto_ThreadMutexInit( LETO_MUTEX * pMutex );
-extern void leto_ThreadMutexDestroy( LETO_MUTEX * pMutex );
-extern BOOL leto_ThreadMutexLock( LETO_MUTEX * pMutex );
-extern BOOL leto_ThreadMutexUnlock( LETO_MUTEX * pMutex );
-extern BOOL leto_ThreadCondInit( LETO_COND * phEvent  );
-extern void leto_ThreadCondDestroy( LETO_COND * phEvent );
-extern int leto_ThreadCondWait( LETO_COND * phEvent, int iMilliseconds );
-extern BOOL leto_ThreadCondUnlock( LETO_COND * pCond );
+typedef struct
+{
+   ULONG *     pulAreaID;
+   ULONG       ulNextID;
+   int         iCurIndex;
+   int         iAllocIndex;
+} AVAILAREAID;
+
+
+// extern BOOL leto_ReadMemArea( char * szBuffer, int iAddr, int iLength );
+// extern BOOL leto_WriteMemArea( const char * szBuffer, int iAddr, int iLength );
+// extern BOOL leto_ThreadMutexInit( LETO_MUTEX * pMutex );
+// extern void leto_ThreadMutexDestroy( LETO_MUTEX * pMutex );
+// extern BOOL leto_ThreadMutexLock( LETO_MUTEX * pMutex );
+// extern BOOL leto_ThreadMutexUnlock( LETO_MUTEX * pMutex );
+// extern BOOL leto_ThreadCondInit( LETO_COND * phEvent  );
+// extern void leto_ThreadCondDestroy( LETO_COND * phEvent );
+// extern int leto_ThreadCondWait( LETO_COND * phEvent, int iMilliseconds );
+// extern BOOL leto_ThreadCondUnlock( LETO_COND * pCond );

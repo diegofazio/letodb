@@ -1,17 +1,17 @@
-# $Id: Makefile.linux,v 1.15 2010/06/10 05:12:11 alkresin Exp $
+# $Id$
 # Building of librddleto.a
 
 # uncomment this line if you want to build letodb with xharbour
 #XHARBOUR = yes
 
 ifeq ($(HB_ROOT),)
-HRB_DIR = /apps/harbour
+HRB_DIR = ..
 else
 HRB_DIR = $(HB_ROOT)
 endif
 
 ifeq ($(XHARBOUR),)
-HRB_LIBS= -lhbvm -lhbrtl -lhbcpage -lhblang -lhbrdd -lhbrtl -lhbvm -lhbmacro -lhbpp -lgtstd -lrddntx -lrddcdx -lrddfpt -lhbcommon -lhbsix
+HRB_LIBS= -lhbvmmt -lhbrtl -lhbcpage -lhblang -lhbrdd -lhbrtl -lhbvm -lhbmacro -lhbpp -lgtstd -lrddntx -lrddcdx -lrddfpt -lhbcommon -lhbsix
 else
 HRB_LIBS= -lvm -lrtl -lcodepage -llang -lrdd -lrtl -lvm -lmacro -lpp -lgtstd -ldbfntx -ldbfcdx -ldbffpt -lcommon -lhbsix -lpcrepos
 endif
@@ -52,6 +52,7 @@ all: \
    $(LETO_BIN_DIR)/letodb
 
 $(LETO_LIB_DIR)/librddleto.a : \
+   $(OBJ_DIR)/letocl.o \
    $(OBJ_DIR)/leto1.o \
    $(OBJ_DIR)/letomgmn.o \
    $(OBJ_DIR)/hbip.o \
@@ -71,14 +72,15 @@ $(LETO_BIN_DIR)/letodb : \
    $(OBJ_DIR)/hbip.o \
    $(OBJ_DIR)/common_c.o \
    $(OBJ_DIR)/blowfish.o \
-   $(OBJ_DIR)/letocore.o \
+   $(OBJ_DIR)/leto_2.o \
    $(OBJ_DIR)/letofunc.o \
+   $(OBJ_DIR)/letolist.o \
    $(OBJ_DIR)/letoacc.o \
    $(OBJ_DIR)/letovars.o \
    $(OBJ_DIR)/leto_lnx.o \
    $(OBJ_DIR)/errint.o \
    $(OBJ_DIR)/errorsys.o
-	gcc $^ -o$(LETO_BIN_DIR)/letodb -L$(LIB_DIR) -Wl,--start-group $(HRB_LIBS) -Wl,--end-group -lm -lpthread
+	gcc $^ -o$(LETO_BIN_DIR)/letodb -L$(LIB_DIR) -Wl,--start-group $(HRB_LIBS) -Wl,--end-group -lm -lpthread -lrt
 
 clean:
 	-(rm -fR obj/linux/* lib/* bin/* )

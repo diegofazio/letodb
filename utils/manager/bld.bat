@@ -1,14 +1,14 @@
 @echo off
 
 set HRB_DIR=%HB_PATH%
-set HWGUI_INSTALL=c:\myapps\hwgui_218
+set HWGUI_INSTALL=c:\myapps\hwgui
 REM set HRB_DIR=C:\CVS-Developers\xharbour
 REM set HWGUI_INSTALL=C:\CVS-Developers\xharbour\contrib\hwgui
 
 %HRB_DIR%\bin\harbour manage.prg -n -i%HRB_DIR%\include;%HWGUI_INSTALL%\include;..\..\include
 
 bcc32  -c -O2 -tW -M -I%HRB_DIR%\include;%HWGUI_INSTALL%\include manage.c
-echo 1 24 "%HWGUI_INSTALL%\image\WindowsXP.Manifest" > hwgui_xp.rc
+echo 1 24 "%HWGUI_INSTALL%\samples\image\WindowsXP.Manifest" > hwgui_xp.rc
 brc32 -r hwgui_xp -fohwgui_xp
 
 echo c0w32.obj + > b32.bc
@@ -46,8 +46,7 @@ if exist %HRB_DIR%\lib\rddntx.lib echo %HRB_DIR%\lib\rddntx.lib + >> b32.bc
 if exist %HRB_DIR%\lib\rddfpt.lib echo %HRB_DIR%\lib\rddfpt.lib + >> b32.bc
 if exist %HRB_DIR%\lib\hbsix.lib echo %HRB_DIR%\lib\hbsix.lib + >> b32.bc
 
-rem echo %HRB_DIR%\lib\rddleto.lib + >> b32.bc
-echo ..\..\lib\rddleto.lib + >> b32.bc
+echo %HRB_DIR%\lib\rddleto.lib + >> b32.bc
 if exist %HRB_DIR%\lib\rdd%HB_MT%.lib echo %HRB_DIR%\lib\rdd%HB_MT% + >> b32.bc
 if exist %HRB_DIR%\lib\hbrdd.lib echo %HRB_DIR%\lib\hbrdd.lib + >> b32.bc
 
